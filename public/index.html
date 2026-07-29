@@ -45,6 +45,8 @@
     }
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  button:not(:disabled){cursor:pointer;}
+  @media (hover:hover){ button:not(:disabled):hover{ filter:brightness(0.94); transition:filter .15s ease; } }
   html,body{margin:0;padding:0;height:100%;background:var(--paper);color:var(--ink);
     font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Segoe UI",Roboto,Helvetica,Arial,sans-serif;
     overscroll-behavior:none;-webkit-font-smoothing:antialiased;}
