@@ -6,6 +6,12 @@ const CSV_COLUMNS = [
   "route", "calibration_session_id", "capture_session_id", "sign_type", "note", "session_notes"
 ];
 
+// Root app (no studyId) keeps its original unprefixed key scheme so existing data
+// stays reachable. Studies created via the Study Builder get their own namespace.
+function keyPrefix(studyId: string | null): string {
+  return studyId && studyId !== "default" ? `${studyId}/` : "";
+}
+
 function isoWeek(dateStr: string): string {
   const d = new Date(`${dateStr}T00:00:00Z`);
   const target = new Date(d.valueOf());
@@ -41,8 +47,10 @@ export default async (req: Request, context: Context) => {
   const url = new URL(req.url);
 
   if (req.method === "GET") {
+    const studyId = url.searchParams.get("study");
+    const prefix = keyPrefix(studyId);
     const week = url.searchParams.get("week") || isoWeek(new Date().toISOString().slice(0, 10));
-    const { blobs } = await store.list({ prefix: `${week}/` });
+    const { blobs } = await store.list({ prefix: `${prefix}${week}/` });
     const values = await Promise.all(blobs.map((b) => store.get(b.key, { type: "json" })));
     const entries = values.filter(Boolean);
 
@@ -61,20 +69,22 @@ export default async (req: Request, context: Context) => {
     const body = await req.json();
     const items = Array.isArray(body.entries) ? body.entries : [];
     for (const item of items) {
+      const prefix = keyPrefix(item.studyId || null);
       const week = isoWeek(item.date);
-      await store.setJSON(`${week}/${item.id}`, item);
+      await store.setJSON(`${prefix}${week}/${item.id}`, item);
     }
     return Response.json({ ok: true, count: items.length });
   }
 
   if (req.method === "PATCH") {
     const body = await req.json();
+    const prefix = keyPrefix(body.studyId || null);
     const week = body.week || isoWeek(new Date().toISOString().slice(0, 10));
-    const key = `${week}/${body.id}`;
+    const key = `${prefix}${week}/${body.id}`;
     const existing = await store.get(key, { type: "json" });
     if (!existing) return new Response("Not found", { status: 404 });
 
-    const allowedFields = ["signType", "note", "calibrationSessionId", "captureSessionId", "sessionNotes"];
+    const allowedFields = ["signType", "calibrationSessionId", "captureSessionId", "sessionNotes"];
     const updates = body.updates || {};
     const merged = { ...existing };
     for (const field of allowedFields) {
@@ -88,8 +98,9 @@ export default async (req: Request, context: Context) => {
 
   if (req.method === "DELETE") {
     const body = await req.json();
+    const prefix = keyPrefix(body.studyId || null);
     const week = body.week || isoWeek(new Date().toISOString().slice(0, 10));
-    await store.delete(`${week}/${body.id}`);
+    await store.delete(`${prefix}${week}/${body.id}`);
     return Response.json({ ok: true });
   }
 

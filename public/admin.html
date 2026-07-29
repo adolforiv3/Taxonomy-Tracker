@@ -59,6 +59,8 @@
 
   main{max-width:1200px;margin:0 auto;padding:8px 28px 60px;}
 
+  .loadingwrap{max-width:600px;margin:100px auto;text-align:center;color:var(--ink-soft);font-size:14px;}
+
   /* Passcode gate */
   .gate{max-width:360px;margin:80px auto;background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);
     padding:28px;box-shadow:var(--shadow-md);text-align:center;}
@@ -94,26 +96,18 @@
   .daytab.active{background:var(--ink);color:var(--card);border-color:var(--ink);}
   .daytab .cnt{opacity:.75;margin-left:4px;}
 
-  table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--border);border-radius:var(--r-md);
-    overflow:hidden;box-shadow:var(--shadow-sm);}
-  thead th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-soft);
-    padding:12px 14px;border-bottom:1px solid var(--border);font-weight:600;white-space:nowrap;}
-  tbody td{padding:13px 14px;border-bottom:1px solid var(--paper-line);font-size:13.5px;vertical-align:top;}
-  tbody tr:last-child td{border-bottom:none;}
-  tbody tr:hover{background:var(--paper);}
-  .tablewrap{overflow-x:auto;}
   .teampill{display:inline-block;background:var(--teal-bg);color:var(--teal-dark);border-radius:6px;padding:2px 8px;
     font-size:11px;font-weight:700;}
-  .note{font-size:12px;color:var(--ink-soft);margin-top:2px;}
+  .countbadge{display:inline-block;background:var(--paper-line);color:var(--ink-soft);border-radius:6px;padding:1px 7px;
+    font-size:11px;font-weight:700;margin-left:6px;font-variant-numeric:tabular-nums;}
   .rowbtn{background:transparent;border:1px solid var(--border);border-radius:var(--r-sm);padding:6px 11px;font-size:11.5px;
     font-weight:600;margin-right:6px;cursor:pointer;}
   .rowbtn.edit{color:var(--teal);}
   .rowbtn.del{color:var(--red);}
   .empty{text-align:center;padding:60px 20px;color:var(--ink-soft);font-size:14px;}
 
-  .editrow textarea, .editrow input, .editrow select{width:100%;padding:7px 9px;border:1px solid var(--border);
+  .editrow input, .editrow select{width:100%;padding:7px 9px;border:1px solid var(--border);
     border-radius:var(--r-sm);font-size:12.5px;font-family:inherit;background:var(--card);color:var(--ink);}
-  .editrow textarea{min-height:40px;resize:vertical;}
 
   .accordion{display:flex;flex-direction:column;gap:10px;}
   .team-group{background:var(--card);border:1px solid var(--border);border-radius:var(--r-md);box-shadow:var(--shadow-sm);overflow:hidden;}
@@ -138,7 +132,10 @@
 <div id="app"></div>
 
 <script>
-const SIGN_EMOJI = {
+const STUDY_MATCH = window.location.pathname.match(/^\/s\/([^\/]+)/);
+const STUDY_ID = STUDY_MATCH ? STUDY_MATCH[1] : "default";
+
+let SIGN_EMOJI = {
   "Construction Sign": "🚧", "Crosswalk": "🦓", "Cycling": "🚴", "Do Not Enter": "⛔",
   "End Restrictions": "🔚", "No Cycling": "🚳", "No Pedestrian Sign": "🚷", "One Way (left)": "⬅️",
   "One Way (right)": "➡️", "Parking Area": "🅿️", "Pedestrian Crossing Sign": "🚸",
@@ -146,7 +143,9 @@ const SIGN_EMOJI = {
   "School Zone": "🏫", "Stop Sign": "🛑", "Street Name Sign": "🪧", "Traffic Light": "🚦",
   "Trailhead Sign": "🥾", "Turn Restrictions": "↩️"
 };
-const SIGN_TYPES = Object.keys(SIGN_EMOJI).sort((a,b) => a.localeCompare(b));
+let SIGN_TYPES = Object.keys(SIGN_EMOJI).sort((a,b) => a.localeCompare(b));
+let TEAM_IDS = [1,2,3,4,5,6];
+let STUDY_NAME = "Taxonomy Logger";
 
 function isoWeek(dateStr){
   const d = new Date(dateStr + "T00:00:00Z");
@@ -168,7 +167,9 @@ function shiftWeek(week, delta){
 }
 
 let state = {
-  authed: sessionStorage.getItem("tl_admin_ok") === "1",
+  studyLoaded: STUDY_ID === "default",
+  studyError: false,
+  authed: sessionStorage.getItem("tl_admin_ok_" + STUDY_ID) === "1",
   passcodeErr: "",
   week: isoWeek(new Date().toISOString().slice(0,10)),
   entries: [],
@@ -183,8 +184,36 @@ let pollTimer = null;
 
 const app = document.getElementById("app");
 
+async function loadStudy(){
+  try {
+    const res = await fetch(`/api/studies?id=${encodeURIComponent(STUDY_ID)}`);
+    if(!res.ok) throw new Error("not found");
+    const data = await res.json();
+    const s = data.study;
+    STUDY_NAME = s.name;
+    TEAM_IDS = Array.from({length: s.teamCount}, (_, i) => i + 1);
+    SIGN_EMOJI = {};
+    s.signTypes.forEach(t => { SIGN_EMOJI[t.name] = t.emoji; });
+    SIGN_TYPES = Object.keys(SIGN_EMOJI).sort((a,b) => a.localeCompare(b));
+    state.studyLoaded = true;
+  } catch (err) {
+    state.studyError = true;
+  }
+  render();
+}
+
 function render(){
   app.innerHTML = "";
+  if(state.studyError){
+    app.innerHTML = `<header><h1>Taxonomy Logger</h1><span class="sub">Admin</span></header>
+      <div class="loadingwrap">This study link isn't valid, or the study may have been removed.<br><br>Check the link with your DRI / Lab Admin.</div>`;
+    return;
+  }
+  if(!state.studyLoaded){
+    app.innerHTML = `<header><h1>Taxonomy Logger</h1><span class="sub">Admin</span></header>
+      <div class="loadingwrap">Loading study…</div>`;
+    return;
+  }
   app.appendChild(state.authed ? renderDashboard() : renderGate());
 }
 
@@ -213,10 +242,10 @@ async function tryUnlock(){
     const res = await fetch("/api/admin-auth", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ passcode })
+      body: JSON.stringify({ passcode, studyId: STUDY_ID })
     });
     if(res.ok){
-      sessionStorage.setItem("tl_admin_ok", "1");
+      sessionStorage.setItem("tl_admin_ok_" + STUDY_ID, "1");
       state.authed = true;
       state.passcodeErr = "";
       render();
@@ -236,7 +265,8 @@ function renderDashboard(){
   const wrap = document.createElement("div");
 
   const header = document.createElement("header");
-  header.innerHTML = `<h1>Taxonomy Logger</h1><span class="sub">Admin</span>
+  const sub = STUDY_ID === "default" ? "Admin" : escapeHtml(STUDY_NAME);
+  header.innerHTML = `<h1>Taxonomy Logger</h1><span class="sub">${sub}</span>
     <span class="livepill"><span class="livedot"></span>Live</span>`;
   wrap.appendChild(header);
 
@@ -269,7 +299,7 @@ function renderDashboard(){
   statGrid.className = "statgrid";
   statGrid.innerHTML = `
     <div class="statcard"><div class="num">${state.entries.length}</div><div class="lbl">Total This Week</div></div>
-    ${[1,2,3,4,5,6].map(t => `<div class="statcard"><div class="num">${byTeam[t]||0}</div><div class="lbl">Team ${t}</div></div>`).join("")}
+    ${TEAM_IDS.map(t => `<div class="statcard"><div class="num">${byTeam[t]||0}</div><div class="lbl">Team ${t}</div></div>`).join("")}
   `;
   main.appendChild(statGrid);
 
@@ -308,12 +338,11 @@ function renderDashboard(){
 
   wrap.appendChild(main);
 
-  header.querySelector(".sub"); // no-op to keep header ref alive
   topbar.querySelector("#prevWeek").onclick = () => { state.week = shiftWeek(state.week, -1); state.dayFilter = "all"; render(); fetchEntries(); };
   topbar.querySelector("#nextWeek").onclick = () => { state.week = shiftWeek(state.week, 1); state.dayFilter = "all"; render(); fetchEntries(); };
   topbar.querySelector("#refreshBtn").onclick = fetchEntries;
   topbar.querySelector("#exportBtn").onclick = () => {
-    window.location.href = `/api/entries?week=${encodeURIComponent(state.week)}&format=csv`;
+    window.location.href = `/api/entries?week=${encodeURIComponent(state.week)}&study=${encodeURIComponent(STUDY_ID)}&format=csv`;
   };
 
   return wrap;
@@ -330,6 +359,20 @@ function groupIntoRounds(entries){
   rounds.forEach(r => r.sort((a,b) => String(a.timestamp).localeCompare(String(b.timestamp))));
   rounds.sort((a,b) => String(b[b.length-1].timestamp).localeCompare(String(a[a.length-1].timestamp)));
   return rounds;
+}
+
+function groupEntriesBySign(entries){
+  const map = new Map();
+  entries.forEach(e => {
+    if(!map.has(e.signType)) map.set(e.signType, []);
+    map.get(e.signType).push(e);
+  });
+  const groups = [...map.entries()].map(([signType, items]) => ({
+    signType,
+    items: items.slice().sort((a,b) => String(a.timestamp).localeCompare(String(b.timestamp)))
+  }));
+  groups.sort((a,b) => String(b.items[b.items.length-1].timestamp).localeCompare(String(a.items[a.items.length-1].timestamp)));
+  return groups;
 }
 
 function renderTeamAccordion(entries){
@@ -394,20 +437,21 @@ function renderRoundBlock(round){
     ${first.sessionNotes ? `<br>Session: "${escapeHtml(first.sessionNotes)}"` : ""}`;
   block.appendChild(meta);
 
-  round.forEach(entry => {
-    if(state.editingId === entry.id){
-      block.appendChild(renderEntryEditRow(entry));
+  groupEntriesBySign(round).forEach(group => {
+    const latest = group.items[group.items.length - 1];
+
+    if(state.editingId === latest.id){
+      block.appendChild(renderEntryEditRow(latest));
       return;
     }
 
     const row = document.createElement("div");
     row.className = "sign-row";
-    const editedTag = entry.editedAt ? ` · edited ${new Date(entry.editedAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}` : "";
+    const editedTag = latest.editedAt ? ` · edited ${new Date(latest.editedAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}` : "";
     row.innerHTML = `
       <div>
-        <div class="sign-name">${SIGN_EMOJI[entry.signType]||""} ${escapeHtml(entry.signType)}</div>
-        ${entry.note ? `<div class="note">"${escapeHtml(entry.note)}"</div>` : ""}
-        <div class="note">${new Date(entry.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}${editedTag}</div>
+        <div class="sign-name">${SIGN_EMOJI[group.signType]||""} ${escapeHtml(group.signType)}${group.items.length>1 ? `<span class="countbadge">×${group.items.length}</span>` : ""}</div>
+        <div class="round-meta">${new Date(latest.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}${editedTag}</div>
       </div>
     `;
     const actions = document.createElement("div");
@@ -416,19 +460,19 @@ function renderRoundBlock(round){
     editBtn.className = "rowbtn edit";
     editBtn.textContent = "Edit";
     editBtn.onclick = () => {
-      state.editingId = entry.id;
+      state.editingId = latest.id;
       state.editDraft = {
-        signType: entry.signType, note: entry.note || "",
-        calibrationSessionId: entry.calibrationSessionId || "",
-        captureSessionId: entry.captureSessionId || "",
-        sessionNotes: entry.sessionNotes || ""
+        signType: latest.signType,
+        calibrationSessionId: latest.calibrationSessionId || "",
+        captureSessionId: latest.captureSessionId || "",
+        sessionNotes: latest.sessionNotes || ""
       };
       render();
     };
     const delBtn = document.createElement("button");
     delBtn.className = "rowbtn del";
-    delBtn.textContent = "Delete";
-    delBtn.onclick = () => deleteEntry(entry);
+    delBtn.textContent = group.items.length > 1 ? "Delete one" : "Delete";
+    delBtn.onclick = () => deleteEntry(latest);
     actions.appendChild(editBtn);
     actions.appendChild(delBtn);
     row.appendChild(actions);
@@ -454,12 +498,6 @@ function renderEntryEditRow(entry){
   select.onchange = (e) => { state.editDraft.signType = e.target.value; };
   row.appendChild(select);
 
-  const noteArea = document.createElement("textarea");
-  noteArea.value = state.editDraft.note;
-  noteArea.placeholder = "Note";
-  noteArea.oninput = (e) => { state.editDraft.note = e.target.value; };
-  row.appendChild(noteArea);
-
   const actions = document.createElement("div");
   actions.style.cssText = "display:flex;gap:6px;";
   const saveBtn = document.createElement("button");
@@ -476,11 +514,12 @@ function renderEntryEditRow(entry){
 
   return row;
 }
+
 async function fetchEntries(){
   state.loading = true;
   render();
   try {
-    const res = await fetch(`/api/entries?week=${encodeURIComponent(state.week)}`);
+    const res = await fetch(`/api/entries?week=${encodeURIComponent(state.week)}&study=${encodeURIComponent(STUDY_ID)}`);
     const data = await res.json();
     state.entries = data.entries || [];
     state.lastUpdated = new Date();
@@ -497,7 +536,7 @@ async function deleteEntry(entry){
     await fetch("/api/entries", {
       method: "DELETE",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ week: state.week, id: entry.id })
+      body: JSON.stringify({ week: state.week, id: entry.id, studyId: STUDY_ID })
     });
     state.entries = state.entries.filter(e => e.id !== entry.id);
     render();
@@ -511,7 +550,7 @@ async function saveEdit(entry){
     const res = await fetch("/api/entries", {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ week: state.week, id: entry.id, updates: state.editDraft })
+      body: JSON.stringify({ week: state.week, id: entry.id, studyId: STUDY_ID, updates: state.editDraft })
     });
     if(!res.ok) throw new Error("Save failed");
     const { entry: updated } = await res.json();
@@ -534,7 +573,11 @@ function escapeHtml(s){
 }
 
 render();
-if(state.authed){ fetchEntries(); startPolling(); }
+if(STUDY_ID !== "default"){
+  loadStudy().then(() => { if(state.authed){ fetchEntries(); startPolling(); } });
+} else if(state.authed){
+  fetchEntries(); startPolling();
+}
 </script>
 </body>
 </html>

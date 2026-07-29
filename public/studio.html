@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Taxonomy Logger — Study Builder</title>
+<style>
+  :root{
+    --paper:#f5f5f7; --paper-line: rgba(0,0,0,0.05); --ink:#1d1d1f; --ink-soft:#6e6e73;
+    --teal:#5e5ce6; --teal-dark:#4a48c4; --teal-bg: rgba(94,92,230,0.1);
+    --red:#ff3b30; --red-bg: rgba(255,59,48,0.12);
+    --card:#ffffff; --border: rgba(0,0,0,0.09);
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.04), 0 1px 6px rgba(0,0,0,0.05);
+    --shadow-md: 0 4px 16px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.06);
+    --shadow-lg: 0 16px 48px rgba(0,0,0,0.16), 0 2px 8px rgba(0,0,0,0.08);
+    --r-sm:10px; --r-md:14px; --r-lg:20px; --r-pill:999px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --paper:#000000; --paper-line: rgba(255,255,255,0.07); --ink:#f5f5f7; --ink-soft:#98989d;
+      --teal:#7d7aff; --teal-dark:#a5a3ff; --teal-bg: rgba(125,122,255,0.18);
+      --red:#ff453a; --red-bg: rgba(255,69,58,0.16);
+      --card:#1c1c1e; --border: rgba(255,255,255,0.12);
+      --shadow-sm: 0 0 0 1px rgba(255,255,255,0.06);
+      --shadow-md: 0 0 0 1px rgba(255,255,255,0.06), 0 8px 24px rgba(0,0,0,0.5);
+      --shadow-lg: 0 0 0 1px rgba(255,255,255,0.08), 0 20px 60px rgba(0,0,0,0.6);
+    }
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--paper);color:var(--ink);min-height:100%;
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;}
+
+  header{padding:20px 28px;display:flex;align-items:baseline;gap:10px;}
+  header h1{font-size:20px;margin:0;font-weight:700;letter-spacing:-0.02em;}
+  header .sub{font-size:12px;color:var(--teal);font-weight:600;letter-spacing:.02em;}
+
+  main{max-width:900px;margin:0 auto;padding:8px 28px 60px;}
+
+  .gate{max-width:360px;margin:80px auto;background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);
+    padding:28px;box-shadow:var(--shadow-md);text-align:center;}
+  .gate h2{font-size:16px;margin:0 0 6px;font-weight:700;letter-spacing:-0.01em;}
+  .gate p{font-size:13px;color:var(--ink-soft);margin:0 0 18px;}
+  .gate input{width:100%;padding:12px;border:1px solid var(--border);border-radius:var(--r-sm);font-size:16px;margin-bottom:12px;
+    text-align:center;letter-spacing:2px;background:var(--card);color:var(--ink);}
+  .gate input:focus{outline:none;border-color:var(--teal);box-shadow:0 0 0 4px var(--teal-bg);}
+  .gate button{width:100%;padding:13px;border:none;border-radius:var(--r-sm);background:var(--teal);color:#fff;
+    font-weight:600;font-size:14px;}
+  .gate .err{color:var(--red);font-size:12.5px;margin-top:10px;min-height:16px;}
+
+  .card{background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);padding:22px;margin-bottom:20px;
+    box-shadow:var(--shadow-sm);}
+  .card h2{font-size:16px;margin:0 0 16px;font-weight:700;letter-spacing:-0.01em;}
+
+  .field{margin-bottom:16px;}
+  .field label{display:block;font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);
+    font-weight:700;margin-bottom:6px;}
+  .field input, .field textarea{width:100%;padding:11px 13px;border:1px solid var(--border);border-radius:var(--r-sm);
+    font-size:15px;font-family:inherit;background:var(--paper);color:var(--ink);}
+  .field input:focus{outline:none;border-color:var(--teal);box-shadow:0 0 0 4px var(--teal-bg);}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+
+  .listrow{display:flex;gap:8px;margin-bottom:8px;align-items:center;}
+  .listrow input{flex:1;padding:9px 12px;border:1px solid var(--border);border-radius:var(--r-sm);font-size:14px;
+    background:var(--paper);color:var(--ink);font-family:inherit;}
+  .listrow input.emoji{flex:0 0 60px;text-align:center;}
+  .listrow .rmbtn{background:transparent;border:1px solid var(--border);color:var(--red);border-radius:var(--r-sm);
+    padding:8px 10px;font-size:12px;font-weight:700;flex-shrink:0;}
+  .addbtn{background:var(--teal-bg);color:var(--teal-dark);border:1px dashed var(--teal);border-radius:var(--r-sm);
+    padding:9px 14px;font-size:12.5px;font-weight:600;width:100%;margin-top:4px;}
+
+  .launchbtn{width:100%;padding:15px;border:none;border-radius:var(--r-sm);background:var(--ink);color:var(--card);
+    font-weight:700;font-size:15px;margin-top:8px;}
+  .launchbtn:disabled{background:var(--border);color:var(--ink-soft);}
+
+  .result{background:var(--teal-bg);border:1px solid var(--teal);border-radius:var(--r-md);padding:16px;margin-top:16px;}
+  .result .linkrow{display:flex;align-items:center;gap:8px;margin-top:8px;background:var(--card);border:1px solid var(--border);
+    border-radius:var(--r-sm);padding:9px 12px;}
+  .result .linkrow code{flex:1;font-size:12.5px;overflow-x:auto;white-space:nowrap;color:var(--ink);}
+  .result .linkrow button{background:var(--teal);color:#fff;border:none;border-radius:var(--r-sm);padding:6px 12px;
+    font-size:11.5px;font-weight:600;flex-shrink:0;}
+
+  .studylist{display:flex;flex-direction:column;gap:10px;}
+  .studyrow{background:var(--card);border:1px solid var(--border);border-radius:var(--r-md);padding:14px 16px;
+    box-shadow:var(--shadow-sm);display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+  .studyrow .name{font-weight:700;font-size:14.5px;}
+  .studyrow .meta{font-size:12.5px;color:var(--ink-soft);}
+  .studyrow .actions{margin-left:auto;display:flex;gap:6px;}
+  .studyrow button{background:transparent;border:1px solid var(--border);color:var(--teal);border-radius:var(--r-sm);
+    padding:7px 12px;font-size:12px;font-weight:600;}
+  .empty{color:var(--ink-soft);text-align:center;padding:30px 0;font-size:13.5px;}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+const DEFAULT_PROTOCOLS = ["Walk", "Exploration", "Fast-Walk"];
+const DEFAULT_ENVIRONMENTS = [
+  "Urban Street", "Near Restaurant", "Popular Landmark", "Near Corporate",
+  "Residential", "Parking Garages and Parking Lots", "City Parks", "Gas Station"
+];
+const DEFAULT_SIGN_TYPES = [
+  {name:"Construction Sign", emoji:"🚧"}, {name:"Crosswalk", emoji:"🦓"}, {name:"Cycling", emoji:"🚴"},
+  {name:"Do Not Enter", emoji:"⛔"}, {name:"End Restrictions", emoji:"🔚"}, {name:"No Cycling", emoji:"🚳"},
+  {name:"No Pedestrian Sign", emoji:"🚷"}, {name:"One Way (left)", emoji:"⬅️"}, {name:"One Way (right)", emoji:"➡️"},
+  {name:"Parking Area", emoji:"🅿️"}, {name:"Pedestrian Crossing Sign", emoji:"🚸"}, {name:"Pedestrian Zone Ends Sign", emoji:"🏁"},
+  {name:"Pedestrian Zone Sign", emoji:"🚶"}, {name:"Railroad Crossing Sign", emoji:"🚆"}, {name:"School Zone", emoji:"🏫"},
+  {name:"Stop Sign", emoji:"🛑"}, {name:"Street Name Sign", emoji:"🪧"}, {name:"Traffic Light", emoji:"🚦"},
+  {name:"Trailhead Sign", emoji:"🥾"}, {name:"Turn Restrictions", emoji:"↩️"}
+];
+
+function blankForm(){
+  return {
+    editingId: null,
+    name: "", dateStart: "", dateEnd: "", passcode: "", teamCount: 6,
+    protocols: [...DEFAULT_PROTOCOLS],
+    environments: [...DEFAULT_ENVIRONMENTS],
+    objectKitCount: 10,
+    signTypes: DEFAULT_SIGN_TYPES.map(s => ({...s}))
+  };
+}
+
+let state = {
+  authed: sessionStorage.getItem("tl_studio_ok") === "1",
+  passcodeErr: "",
+  studies: [],
+  loading: false,
+  saving: false,
+  launchResult: null,
+  form: blankForm()
+};
+
+const app = document.getElementById("app");
+
+function render(){
+  app.innerHTML = "";
+  app.appendChild(state.authed ? renderDashboard() : renderGate());
+}
+
+function renderGate(){
+  const wrap = document.createElement("div");
+  wrap.innerHTML = `
+    <header><h1>Taxonomy Logger</h1><span class="sub">Study Builder</span></header>
+    <div class="gate">
+      <h2>DRI / Lab Admin Access</h2>
+      <p>Enter the studio passcode to create and manage studies.</p>
+      <input id="passcodeInput" type="password" placeholder="Passcode" autocomplete="off" />
+      <button id="unlockBtn">Unlock</button>
+      <div class="err">${state.passcodeErr}</div>
+    </div>
+  `;
+  wrap.querySelector("#unlockBtn").onclick = tryUnlock;
+  wrap.querySelector("#passcodeInput").addEventListener("keydown", (e) => { if(e.key === "Enter") tryUnlock(); });
+  setTimeout(() => wrap.querySelector("#passcodeInput")?.focus(), 0);
+  return wrap;
+}
+
+async function tryUnlock(){
+  const input = document.getElementById("passcodeInput");
+  try {
+    const res = await fetch("/api/admin-auth", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ passcode: input.value, studyId: "__studio__" })
+    });
+    if(res.ok){
+      sessionStorage.setItem("tl_studio_ok", "1");
+      state.authed = true;
+      state.passcodeErr = "";
+      render();
+      fetchStudies();
+    } else {
+      state.passcodeErr = "Incorrect passcode";
+      render();
+    }
+  } catch (err) {
+    state.passcodeErr = "Couldn't reach server — try again";
+    render();
+  }
+}
+
+function renderDashboard(){
+  const wrap = document.createElement("div");
+  wrap.innerHTML = `<header><h1>Taxonomy Logger</h1><span class="sub">Study Builder</span></header>`;
+
+  const main = document.createElement("main");
+  main.appendChild(renderForm());
+  main.appendChild(renderStudyList());
+  wrap.appendChild(main);
+  return wrap;
+}
+
+function renderForm(){
+  const f = state.form;
+  const card = document.createElement("div");
+  card.className = "card";
+  card.innerHTML = `<h2>${f.editingId ? "Edit Study" : "Create New Study"}</h2>`;
+
+  const nameField = fieldInput("Study Name", "text", f.name, v => f.name = v, "e.g. Downtown Signage Survey — Summer 2026");
+  card.appendChild(nameField);
+
+  const row2 = document.createElement("div");
+  row2.className = "row2";
+  row2.appendChild(fieldInput("Start Date", "date", f.dateStart, v => f.dateStart = v));
+  row2.appendChild(fieldInput("End Date", "date", f.dateEnd, v => f.dateEnd = v));
+  card.appendChild(row2);
+
+  const row3 = document.createElement("div");
+  row3.className = "row2";
+  row3.appendChild(fieldInput("Admin Passcode (for this study)", "text", f.passcode, v => f.passcode = v));
+  row3.appendChild(fieldInput("Team Count", "number", f.teamCount, v => f.teamCount = Number(v) || 1));
+  card.appendChild(row3);
+
+  card.appendChild(fieldInput("Object Kit Count", "number", f.objectKitCount, v => f.objectKitCount = Number(v) || 1));
+
+  card.appendChild(listEditor("Protocols", f.protocols, () => f.protocols.push(""), (i) => f.protocols.splice(i,1)));
+  card.appendChild(listEditor("Environment Types", f.environments, () => f.environments.push(""), (i) => f.environments.splice(i,1)));
+  card.appendChild(signTypeEditor(f));
+
+  const launchBtn = document.createElement("button");
+  launchBtn.className = "launchbtn";
+  launchBtn.textContent = state.saving ? "Saving…" : (f.editingId ? "Save Changes" : "✓ Launch Study");
+  launchBtn.disabled = state.saving;
+  launchBtn.onclick = saveStudy;
+  card.appendChild(launchBtn);
+
+  if(f.editingId){
+    const cancelBtn = document.createElement("button");
+    cancelBtn.className = "launchbtn";
+    cancelBtn.style.cssText = "background:transparent;color:var(--ink-soft);border:1px solid var(--border);margin-top:8px;";
+    cancelBtn.textContent = "Cancel Edit";
+    cancelBtn.onclick = () => { state.form = blankForm(); state.launchResult = null; render(); };
+    card.appendChild(cancelBtn);
+  }
+
+  if(state.launchResult){
+    const result = document.createElement("div");
+    result.className = "result";
+    const origin = window.location.origin;
+    result.innerHTML = `
+      <div style="font-weight:700;font-size:13.5px;">Study saved: ${escapeHtml(state.launchResult.name)}</div>
+      <div class="linkrow"><code>${origin}/s/${state.launchResult.id}</code><button data-copy="${origin}/s/${state.launchResult.id}">Copy Field Link</button></div>
+      <div class="linkrow"><code>${origin}/s/${state.launchResult.id}/admin</code><button data-copy="${origin}/s/${state.launchResult.id}/admin">Copy Admin Link</button></div>
+    `;
+    result.querySelectorAll("button[data-copy]").forEach(btn => {
+      btn.onclick = () => { navigator.clipboard.writeText(btn.dataset.copy); btn.textContent = "Copied!"; setTimeout(() => render(), 1200); };
+    });
+    card.appendChild(result);
+  }
+
+  return card;
+}
+
+function fieldInput(label, type, value, onChange, placeholder){
+  const wrap = document.createElement("div");
+  wrap.className = "field";
+  const lbl = document.createElement("label");
+  lbl.textContent = label;
+  wrap.appendChild(lbl);
+  const input = document.createElement("input");
+  input.type = type;
+  input.value = value;
+  if(placeholder) input.placeholder = placeholder;
+  input.oninput = (e) => onChange(e.target.value);
+  wrap.appendChild(input);
+  return wrap;
+}
+
+function listEditor(label, arr, onAdd, onRemove){
+  const wrap = document.createElement("div");
+  wrap.className = "field";
+  const lbl = document.createElement("label");
+  lbl.textContent = `${label} (${arr.length})`;
+  wrap.appendChild(lbl);
+
+  arr.forEach((val, i) => {
+    const row = document.createElement("div");
+    row.className = "listrow";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.value = val;
+    input.oninput = (e) => { arr[i] = e.target.value; };
+    row.appendChild(input);
+    const rm = document.createElement("button");
+    rm.className = "rmbtn";
+    rm.textContent = "Remove";
+    rm.onclick = () => { onRemove(i); render(); };
+    row.appendChild(rm);
+    wrap.appendChild(row);
+  });
+
+  const addBtn = document.createElement("button");
+  addBtn.className = "addbtn";
+  addBtn.textContent = `+ Add ${label.replace(/s$/,"")}`;
+  addBtn.onclick = () => { onAdd(); render(); };
+  wrap.appendChild(addBtn);
+
+  return wrap;
+}
+
+function signTypeEditor(f){
+  const wrap = document.createElement("div");
+  wrap.className = "field";
+  const lbl = document.createElement("label");
+  lbl.textContent = `Sign Types / Taxonomy (${f.signTypes.length})`;
+  wrap.appendChild(lbl);
+
+  f.signTypes.forEach((s, i) => {
+    const row = document.createElement("div");
+    row.className = "listrow";
+    const emojiInput = document.createElement("input");
+    emojiInput.className = "emoji";
+    emojiInput.type = "text";
+    emojiInput.value = s.emoji;
+    emojiInput.oninput = (e) => { s.emoji = e.target.value; };
+    row.appendChild(emojiInput);
+    const nameInput = document.createElement("input");
+    nameInput.type = "text";
+    nameInput.value = s.name;
+    nameInput.placeholder = "Sign name";
+    nameInput.oninput = (e) => { s.name = e.target.value; };
+    row.appendChild(nameInput);
+    const rm = document.createElement("button");
+    rm.className = "rmbtn";
+    rm.textContent = "Remove";
+    rm.onclick = () => { f.signTypes.splice(i,1); render(); };
+    row.appendChild(rm);
+    wrap.appendChild(row);
+  });
+
+  const addBtn = document.createElement("button");
+  addBtn.className = "addbtn";
+  addBtn.textContent = "+ Add Sign Type";
+  addBtn.onclick = () => { f.signTypes.push({name:"", emoji:"🔹"}); render(); };
+  wrap.appendChild(addBtn);
+
+  return wrap;
+}
+
+async function saveStudy(){
+  const f = state.form;
+  const passcodeRequired = !f.editingId; // editing an existing study may leave passcode blank to keep it unchanged
+  if(!f.name.trim() || (passcodeRequired && !f.passcode.trim())){
+    alert("Study Name and Admin Passcode are required.");
+    return;
+  }
+  state.saving = true;
+  render();
+
+  const payload = {
+    name: f.name.trim(), dateStart: f.dateStart, dateEnd: f.dateEnd,
+    teamCount: f.teamCount,
+    protocols: f.protocols.filter(p => p.trim()),
+    environments: f.environments.filter(e => e.trim()),
+    objectKitCount: f.objectKitCount,
+    signTypes: f.signTypes.filter(s => s.name.trim())
+  };
+  // Only overwrite the passcode if the DRI actually typed a new one — the edit
+  // form loads with this field blank (GET /api/studies never returns the
+  // stored passcode), so leaving it empty must not wipe the existing value.
+  if(f.passcode.trim()) payload.passcode = f.passcode.trim();
+
+  try {
+    let res;
+    if(f.editingId){
+      res = await fetch("/api/studies", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: f.editingId, updates: payload })
+      });
+    } else {
+      res = await fetch("/api/studies", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+    }
+    if(!res.ok) throw new Error("Save failed");
+    const data = await res.json();
+    state.launchResult = data.study;
+    state.form = blankForm();
+    state.saving = false;
+    fetchStudies();
+  } catch (err) {
+    state.saving = false;
+    alert("Couldn't save study — check connection and try again.");
+    render();
+  }
+}
+
+async function fetchStudies(){
+  state.loading = true;
+  render();
+  try {
+    const res = await fetch("/api/studies");
+    const data = await res.json();
+    state.studies = data.studies || [];
+  } catch (err) {
+    // keep last known list
+  }
+  state.loading = false;
+  render();
+}
+
+function renderStudyList(){
+  const card = document.createElement("div");
+  card.className = "card";
+  card.innerHTML = `<h2>Existing Studies</h2>`;
+
+  if(state.studies.length === 0){
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = state.loading ? "Loading…" : "No studies created yet.";
+    card.appendChild(empty);
+    return card;
+  }
+
+  const list = document.createElement("div");
+  list.className = "studylist";
+  const origin = window.location.origin;
+
+  state.studies.forEach(s => {
+    const row = document.createElement("div");
+    row.className = "studyrow";
+    const dates = s.dateStart || s.dateEnd ? `${s.dateStart || "?"} – ${s.dateEnd || "?"}` : "No dates set";
+    row.innerHTML = `
+      <div>
+        <div class="name">${escapeHtml(s.name)}</div>
+        <div class="meta">${dates} · ${s.teamCount} teams · ${s.signTypes.length} sign types</div>
+      </div>
+    `;
+    const actions = document.createElement("div");
+    actions.className = "actions";
+
+    const fieldBtn = document.createElement("button");
+    fieldBtn.textContent = "Field Link";
+    fieldBtn.onclick = () => { navigator.clipboard.writeText(`${origin}/s/${s.id}`); fieldBtn.textContent = "Copied!"; setTimeout(() => fieldBtn.textContent = "Field Link", 1200); };
+
+    const adminBtn = document.createElement("button");
+    adminBtn.textContent = "Admin Link";
+    adminBtn.onclick = () => { navigator.clipboard.writeText(`${origin}/s/${s.id}/admin`); adminBtn.textContent = "Copied!"; setTimeout(() => adminBtn.textContent = "Admin Link", 1200); };
+
+    const editBtn = document.createElement("button");
+    editBtn.textContent = "Edit";
+    editBtn.onclick = () => loadStudyForEdit(s.id);
+
+    actions.appendChild(fieldBtn);
+    actions.appendChild(adminBtn);
+    actions.appendChild(editBtn);
+    row.appendChild(actions);
+    list.appendChild(row);
+  });
+
+  card.appendChild(list);
+  return card;
+}
+
+async function loadStudyForEdit(id){
+  try {
+    const res = await fetch(`/api/studies?id=${encodeURIComponent(id)}`);
+    const data = await res.json();
+    const s = data.study;
+    state.form = {
+      editingId: s.id, name: s.name, dateStart: s.dateStart, dateEnd: s.dateEnd,
+      passcode: "", teamCount: s.teamCount, protocols: [...s.protocols],
+      environments: [...s.environments], objectKitCount: s.objectKitCount,
+      signTypes: s.signTypes.map(x => ({...x}))
+    };
+    state.launchResult = null;
+    render();
+    window.scrollTo({top:0, behavior:"smooth"});
+  } catch (err) {
+    alert("Couldn't load study for editing.");
+  }
+}
+
+function escapeHtml(s){
+  return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+render();
+if(state.authed){ fetchStudies(); }
+</script>
+</body>
+</html>

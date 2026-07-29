@@ -142,6 +142,8 @@
 
   .teampill{display:inline-block;background:var(--teal-bg);color:var(--teal-dark);border-radius:6px;padding:2px 7px;
     font-size:11px;font-weight:700;margin-right:6px;}
+  .countbadge{display:inline-block;background:var(--paper-line);color:var(--ink-soft);border-radius:6px;padding:1px 7px;
+    font-size:11px;font-weight:700;margin-left:6px;font-variant-numeric:tabular-nums;}
 
   .qty-row{display:flex;align-items:center;justify-content:space-between;gap:10px;}
   .qty-stepper{display:flex;align-items:center;gap:8px;flex-shrink:0;}
@@ -153,14 +155,25 @@
 
   .navtoggle{background:var(--teal);color:#fff;border:none;border-radius:var(--r-pill);
     padding:6px 14px;font-size:12px;font-weight:600;margin-left:auto;}
+
+  .reviewblock{background:var(--card);border:1px solid var(--border);border-radius:var(--r-md);padding:14px 16px;
+    margin-bottom:10px;box-shadow:var(--shadow-sm);}
+  .reviewblock .rlabel{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);font-weight:700;margin-bottom:4px;}
+  .reviewblock .rvalue{font-size:14.5px;font-weight:600;}
+
+  .loadingwrap{display:flex;align-items:center;justify-content:center;height:100%;color:var(--ink-soft);font-size:14px;text-align:center;padding:40px;}
 </style>
 </head>
 <body>
 <div id="app"></div>
 
 <script>
-/* ---------------- TAXONOMY: single category "Sign Type" ---------------- */
-const SIGN_EMOJI = {
+/* ---------------- STUDY RESOLUTION ---------------- */
+const STUDY_MATCH = window.location.pathname.match(/^\/s\/([^\/]+)/);
+const STUDY_ID = STUDY_MATCH ? STUDY_MATCH[1] : "default";
+
+/* ---------------- TAXONOMY (defaults for the root app; overridden per-study) ---------------- */
+let SIGN_EMOJI = {
   "Construction Sign": "🚧",
   "Crosswalk": "🦓",
   "Cycling": "🚴",
@@ -182,21 +195,15 @@ const SIGN_EMOJI = {
   "Trailhead Sign": "🥾",
   "Turn Restrictions": "↩️"
 };
-const SIGN_TYPES = Object.keys(SIGN_EMOJI).sort((a,b) => a.localeCompare(b));
-
-const PROTOCOLS = ["Walk", "Exploration", "Fast-Walk"];
-const TEAM_IDS = [1,2,3,4,5,6];
-const ENVIRONMENTS = [
-  "Urban Street",
-  "Near Restaurant",
-  "Popular Landmark",
-  "Near Corporate",
-  "Residential",
-  "Parking Garages and Parking Lots",
-  "City Parks",
-  "Gas Station"
+let SIGN_TYPES = Object.keys(SIGN_EMOJI).sort((a,b) => a.localeCompare(b));
+let PROTOCOLS = ["Walk", "Exploration", "Fast-Walk"];
+let TEAM_IDS = [1,2,3,4,5,6];
+let ENVIRONMENTS = [
+  "Urban Street", "Near Restaurant", "Popular Landmark", "Near Corporate",
+  "Residential", "Parking Garages and Parking Lots", "City Parks", "Gas Station"
 ];
-const OBJECT_KITS = [1,2,3,4,5,6,7,8,9,10];
+let OBJECT_KITS = [1,2,3,4,5,6,7,8,9,10];
+let STUDY_NAME = "Taxonomy Logger";
 
 function isoWeek(dateStr){
   const d = new Date(dateStr + "T00:00:00Z");
@@ -214,8 +221,10 @@ function isoWeek(dateStr){
 
 /* ---------------- STATE ---------------- */
 let state = {
+  studyLoaded: STUDY_ID === "default",
+  studyError: false,
   date: new Date().toISOString().slice(0,10),
-  teamId: Number(localStorage.getItem("tl_teamId")) || null,
+  teamId: Number(localStorage.getItem("tl_teamId_" + STUDY_ID)) || null,
   protocol: null,
   environment: null,
   objectKit: null,
@@ -224,9 +233,8 @@ let state = {
   captureSessionId: "",
   sessionNotes: "",
   tab: "log", // 'log' entry tab or 'weekly'
-  note: "",
   cart: [], // pending items for the current round
-  reviewingFinish: false, // showing the calibration/capture ID + notes step before finalizing a round
+  finishStep: null, // null | 'details' | 'review'
   submitting: false,
   weekly: { week: isoWeek(new Date().toISOString().slice(0,10)), entries: [], loading: false },
   editingId: null,
@@ -240,6 +248,29 @@ function setupComplete(){
   return state.teamId && state.protocol && state.environment && state.objectKit && state.route.trim();
 }
 
+/* ---------------- STUDY LOADING ---------------- */
+async function loadStudy(){
+  try {
+    const res = await fetch(`/api/studies?id=${encodeURIComponent(STUDY_ID)}`);
+    if(!res.ok) throw new Error("not found");
+    const data = await res.json();
+    const s = data.study;
+    STUDY_NAME = s.name;
+    PROTOCOLS = s.protocols.length ? s.protocols : PROTOCOLS;
+    ENVIRONMENTS = s.environments;
+    TEAM_IDS = Array.from({length: s.teamCount}, (_, i) => i + 1);
+    OBJECT_KITS = Array.from({length: s.objectKitCount}, (_, i) => i + 1);
+    SIGN_EMOJI = {};
+    s.signTypes.forEach(t => { SIGN_EMOJI[t.name] = t.emoji; });
+    SIGN_TYPES = Object.keys(SIGN_EMOJI).sort((a,b) => a.localeCompare(b));
+    state.teamId = Number(localStorage.getItem("tl_teamId_" + STUDY_ID)) || null;
+    state.studyLoaded = true;
+  } catch (err) {
+    state.studyError = true;
+  }
+  render();
+}
+
 /* ---------------- RENDER ---------------- */
 const app = document.getElementById("app");
 
@@ -249,7 +280,16 @@ function render(){
 
   app.innerHTML = "";
   app.appendChild(renderHeader());
-  if(!setupComplete()){
+
+  if(state.studyError){
+    app.appendChild(renderStudyError());
+  } else if(!state.studyLoaded){
+    app.appendChild(renderStudyLoading());
+  } else if(state.tab === "weekly" && !setupComplete()){
+    app.appendChild(renderEarlyEditBar());
+    app.appendChild(renderWeekly());
+  } else if(!setupComplete()){
+    app.appendChild(renderSetupEditBar());
     app.appendChild(renderSetup());
   } else {
     app.appendChild(renderCtxBar());
@@ -260,6 +300,7 @@ function render(){
       app.appendChild(renderWeekly());
     }
   }
+
   if(state.toast){
     const t = document.createElement("div");
     t.className = "toast";
@@ -273,8 +314,45 @@ function render(){
 
 function renderHeader(){
   const h = document.createElement("header");
-  h.innerHTML = `<div><span class="brand-eyebrow">Field Capture</span><h1>Taxonomy Logger</h1></div><span class="livepill"><span class="livedot"></span>Live</span>`;
+  const eyebrow = STUDY_ID === "default" ? "Field Capture" : escapeHtml(STUDY_NAME);
+  h.innerHTML = `<div><span class="brand-eyebrow">${eyebrow}</span><h1>Taxonomy Logger</h1></div><span class="livepill"><span class="livedot"></span>Live</span>`;
   return h;
+}
+
+function renderStudyLoading(){
+  const main = document.createElement("main");
+  main.innerHTML = `<div class="loadingwrap">Loading study…</div>`;
+  return main;
+}
+
+function renderStudyError(){
+  const main = document.createElement("main");
+  main.innerHTML = `<div class="loadingwrap">This study link isn't valid, or the study may have been removed.<br><br>Check the link with your DRI / Lab Admin.</div>`;
+  return main;
+}
+
+function renderEarlyEditBar(){
+  const bar = document.createElement("div");
+  bar.className = "ctxbar";
+  bar.innerHTML = `<span>Weekly Document</span>`;
+  const backBtn = document.createElement("button");
+  backBtn.className = "navtoggle";
+  backBtn.textContent = "← Back to Setup";
+  backBtn.onclick = () => { state.tab = "log"; stopPolling(); render(); };
+  bar.appendChild(backBtn);
+  return bar;
+}
+
+function renderSetupEditBar(){
+  const bar = document.createElement("div");
+  bar.className = "ctxbar";
+  bar.innerHTML = `<span>Session Setup</span>`;
+  const editBtn = document.createElement("button");
+  editBtn.className = "navtoggle";
+  editBtn.textContent = "Edit →";
+  editBtn.onclick = () => { state.tab = "weekly"; render(); fetchWeekly(); startPolling(); };
+  bar.appendChild(editBtn);
+  return bar;
 }
 
 function renderCtxBar(){
@@ -339,7 +417,7 @@ function renderSetup(){
 
   if(!page1Done){
     main.appendChild(rowTitle("Team ID"));
-    main.appendChild(tileGrid(TEAM_IDS.map(t=>({label:"Team "+t, sel: state.teamId===t, onClick:()=>{state.teamId=t; localStorage.setItem("tl_teamId", t); render();}}))));
+    main.appendChild(tileGrid(TEAM_IDS.map(t=>({label:"Team "+t, sel: state.teamId===t, onClick:()=>{state.teamId=t; localStorage.setItem("tl_teamId_" + STUDY_ID, t); render();}}))));
 
     main.appendChild(rowTitle("Protocol"));
     main.appendChild(tileGrid(PROTOCOLS.map(m=>({label:m, wide:true, sel: state.protocol===m, onClick:()=>{state.protocol=m; render();}}))));
@@ -417,7 +495,8 @@ function iconGrid(items){
 }
 
 function renderLogFlow(){
-  if(state.reviewingFinish) return renderFinishReview();
+  if(state.finishStep === "details") return renderFinishDetails();
+  if(state.finishStep === "review") return renderFinishReviewFinal();
 
   const main = document.createElement("main");
 
@@ -426,13 +505,6 @@ function renderLogFlow(){
     label: s, emoji: SIGN_EMOJI[s], onClick:()=>{ addToCart(s); }
   }))));
 
-  main.appendChild(rowTitle("Other / Note (optional)"));
-  const ta = document.createElement("textarea");
-  ta.placeholder = "Optional note for edge cases...";
-  ta.value = state.note;
-  ta.oninput = (e) => { state.note = e.target.value; };
-  main.appendChild(ta);
-
   main.appendChild(renderCart());
 
   const wrap = document.createElement("div");
@@ -440,27 +512,27 @@ function renderLogFlow(){
   const finishBtn = document.createElement("button");
   finishBtn.className = "logbtn";
   finishBtn.textContent = state.cart.length
-    ? `✓ Finish Round (${state.cart.length})`
+    ? `Continue (${state.cart.length}) →`
     : "Add items to start a round";
   finishBtn.disabled = state.cart.length === 0;
-  finishBtn.onclick = () => { state.reviewingFinish = true; render(); };
+  finishBtn.onclick = () => { state.finishStep = "details"; render(); };
   wrap.appendChild(finishBtn);
   main.appendChild(wrap);
 
   return main;
 }
 
-function renderFinishReview(){
+function renderFinishDetails(){
   const main = document.createElement("main");
 
   const back = document.createElement("button");
   back.className = "backbtn";
   back.textContent = "‹ Back to signs";
-  back.onclick = () => { state.reviewingFinish = false; render(); };
+  back.onclick = () => { state.finishStep = null; render(); };
   main.appendChild(back);
 
-  main.appendChild(rowTitle(`Review Before Submitting (${state.cart.length} signs)`));
-  main.appendChild(renderReviewList());
+  main.appendChild(rowTitle(`Round Details (${state.cart.length} signs)`));
+  groupCartBySign(state.cart).forEach(group => main.appendChild(renderQtyGroup(group)));
 
   main.appendChild(rowTitle("Calibration Session ID"));
   const calInput = document.createElement("input");
@@ -487,9 +559,53 @@ function renderFinishReview(){
 
   const wrap = document.createElement("div");
   wrap.className = "logbtn-wrap";
+  const reviewBtn = document.createElement("button");
+  reviewBtn.className = "logbtn";
+  reviewBtn.textContent = "Review Round →";
+  reviewBtn.onclick = () => {
+    if(!state.calibrationSessionId.trim() || !state.captureSessionId.trim()){
+      showToast("Calibration ID and Capture ID are required");
+      return;
+    }
+    state.finishStep = "review";
+    render();
+  };
+  wrap.appendChild(reviewBtn);
+  main.appendChild(wrap);
+
+  return main;
+}
+
+function renderFinishReviewFinal(){
+  const main = document.createElement("main");
+
+  const back = document.createElement("button");
+  back.className = "backbtn";
+  back.textContent = "‹ Back to details";
+  back.onclick = () => { state.finishStep = "details"; render(); };
+  main.appendChild(back);
+
+  main.appendChild(rowTitle("Review Before Submitting"));
+
+  const ctxBlock = document.createElement("div");
+  ctxBlock.className = "reviewblock";
+  ctxBlock.innerHTML = `
+    <div class="rlabel">Session</div>
+    <div class="rvalue">Team ${state.teamId} · ${state.protocol} · ${state.environment}</div>
+    <div class="entry-meta">Kit ${state.objectKit} · Route ${escapeHtml(state.route)}</div>
+    <div class="entry-meta" style="margin-top:8px;">Cal ${escapeHtml(state.calibrationSessionId)} · Cap ${escapeHtml(state.captureSessionId)}</div>
+    ${state.sessionNotes ? `<div class="entry-note">Note: "${escapeHtml(state.sessionNotes)}"</div>` : ""}
+  `;
+  main.appendChild(ctxBlock);
+
+  main.appendChild(rowTitle(`Signs (${state.cart.length})`));
+  groupCartBySign(state.cart).forEach(group => main.appendChild(renderQtyGroup(group)));
+
+  const wrap = document.createElement("div");
+  wrap.className = "logbtn-wrap";
   const completeBtn = document.createElement("button");
   completeBtn.className = "logbtn";
-  completeBtn.textContent = state.submitting ? "Saving…" : "✓ Complete Round";
+  completeBtn.textContent = state.submitting ? "Saving…" : "✓ Submit Round";
   completeBtn.disabled = state.submitting;
   completeBtn.onclick = finishRound;
   wrap.appendChild(completeBtn);
@@ -517,13 +633,9 @@ function renderQtyGroup(group){
   const el = document.createElement("div");
   el.className = "entry";
 
-  const notes = group.items.filter(i => i.note).map(i => i.note);
   el.innerHTML = `
     <div class="qty-row">
-      <div>
-        <div class="entry-taxonomy">${SIGN_EMOJI[group.signType]||""} ${escapeHtml(group.signType)}</div>
-        ${notes.map(n => `<div class="entry-note">"${escapeHtml(n)}"</div>`).join("")}
-      </div>
+      <div class="entry-taxonomy">${SIGN_EMOJI[group.signType]||""} ${escapeHtml(group.signType)}</div>
     </div>
   `;
 
@@ -548,12 +660,6 @@ function renderQtyGroup(group){
   return el;
 }
 
-function renderReviewList(){
-  const section = document.createElement("div");
-  groupCartBySign(state.cart).forEach(group => section.appendChild(renderQtyGroup(group)));
-  return section;
-}
-
 function renderCart(){
   const section = document.createElement("div");
   if(state.cart.length === 0) return section;
@@ -564,9 +670,10 @@ function renderCart(){
   return section;
 }
 
-function addToCart(signType){
-  const item = {
+function newCartItem(signType){
+  return {
     id: Date.now() + "-" + Math.random().toString(36).slice(2,7),
+    studyId: STUDY_ID,
     date: state.date,
     timestamp: new Date().toISOString(),
     teamId: state.teamId,
@@ -574,29 +681,18 @@ function addToCart(signType){
     environment: state.environment,
     objectKit: state.objectKit,
     route: state.route,
-    signType: signType,
-    note: state.note.trim()
+    signType: signType
   };
-  state.cart.push(item);
-  state.note = "";
+}
+
+function addToCart(signType){
+  state.cart.push(newCartItem(signType));
   showToast("Added: " + signType + " (" + state.cart.length + " in round)");
   render();
 }
 
 function incrementCartSign(signType){
-  const item = {
-    id: Date.now() + "-" + Math.random().toString(36).slice(2,7),
-    date: state.date,
-    timestamp: new Date().toISOString(),
-    teamId: state.teamId,
-    protocol: state.protocol,
-    environment: state.environment,
-    objectKit: state.objectKit,
-    route: state.route,
-    signType: signType,
-    note: ""
-  };
-  state.cart.push(item);
+  state.cart.push(newCartItem(signType));
   render();
 }
 
@@ -607,7 +703,7 @@ function decrementCartSign(signType){
       break;
     }
   }
-  if(state.cart.length === 0) state.reviewingFinish = false;
+  if(state.cart.length === 0) state.finishStep = null;
   render();
 }
 
@@ -637,7 +733,7 @@ async function finishRound(){
     if(!res.ok) throw new Error("Save failed");
 
     state.cart = [];
-    state.reviewingFinish = false;
+    state.finishStep = null;
     state.calibrationSessionId = "";
     state.captureSessionId = "";
     state.sessionNotes = "";
@@ -670,7 +766,7 @@ async function fetchWeekly(){
   state.weekly.loading = true;
   render();
   try {
-    const res = await fetch(`/api/entries?week=${encodeURIComponent(state.weekly.week)}`);
+    const res = await fetch(`/api/entries?week=${encodeURIComponent(state.weekly.week)}&study=${encodeURIComponent(STUDY_ID)}`);
     const data = await res.json();
     state.weekly.entries = (data.entries || []).sort((a,b) => String(b.timestamp).localeCompare(String(a.timestamp)));
   } catch (err) {
@@ -685,7 +781,7 @@ async function deleteWeeklyEntry(entry){
     await fetch("/api/entries", {
       method: "DELETE",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ week: state.weekly.week, id: entry.id })
+      body: JSON.stringify({ week: state.weekly.week, id: entry.id, studyId: STUDY_ID })
     });
     state.weekly.entries = state.weekly.entries.filter(e => e.id !== entry.id);
     render();
@@ -698,7 +794,6 @@ function startEdit(entry){
   state.editingId = entry.id;
   state.editDraft = {
     signType: entry.signType,
-    note: entry.note || "",
     calibrationSessionId: entry.calibrationSessionId || "",
     captureSessionId: entry.captureSessionId || "",
     sessionNotes: entry.sessionNotes || ""
@@ -717,7 +812,7 @@ async function saveEdit(entry){
     const res = await fetch("/api/entries", {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ week: state.weekly.week, id: entry.id, updates: state.editDraft })
+      body: JSON.stringify({ week: state.weekly.week, id: entry.id, studyId: STUDY_ID, updates: state.editDraft })
     });
     if(!res.ok) throw new Error("Save failed");
     const { entry: updated } = await res.json();
@@ -748,7 +843,7 @@ function renderWeekly(){
   exportBtn.className = "exportbtn";
   exportBtn.textContent = "⬇ Download Weekly CSV (all teams)";
   exportBtn.onclick = () => {
-    window.location.href = `/api/entries?week=${encodeURIComponent(state.weekly.week)}&format=csv`;
+    window.location.href = `/api/entries?week=${encodeURIComponent(state.weekly.week)}&study=${encodeURIComponent(STUDY_ID)}&format=csv`;
   };
   main.appendChild(exportBtn);
 
@@ -764,9 +859,10 @@ function renderWeekly(){
     main.appendChild(renderRoundCard(round));
   });
 
+  const adminHref = STUDY_ID === "default" ? "/admin" : `/s/${STUDY_ID}/admin`;
   const footer = document.createElement("div");
   footer.style.cssText = "text-align:center;margin-top:24px;";
-  footer.innerHTML = `<a href="/admin" style="color:var(--ink-soft);font-size:12px;text-decoration:underline;">Team lead? Open admin dashboard →</a>`;
+  footer.innerHTML = `<a href="${adminHref}" style="color:var(--ink-soft);font-size:12px;text-decoration:underline;">Team lead? Open admin dashboard →</a>`;
   main.appendChild(footer);
 
   return main;
@@ -783,6 +879,20 @@ function groupIntoRounds(entries){
   rounds.forEach(r => r.sort((a,b) => String(a.timestamp).localeCompare(String(b.timestamp))));
   rounds.sort((a,b) => String(b[b.length-1].timestamp).localeCompare(String(a[a.length-1].timestamp)));
   return rounds;
+}
+
+function groupEntriesBySign(entries){
+  const map = new Map();
+  entries.forEach(e => {
+    if(!map.has(e.signType)) map.set(e.signType, []);
+    map.get(e.signType).push(e);
+  });
+  const groups = [...map.entries()].map(([signType, items]) => ({
+    signType,
+    items: items.slice().sort((a,b) => String(a.timestamp).localeCompare(String(b.timestamp)))
+  }));
+  groups.sort((a,b) => String(b.items[b.items.length-1].timestamp).localeCompare(String(a.items[a.items.length-1].timestamp)));
+  return groups;
 }
 
 function renderRoundCard(round){
@@ -803,37 +913,38 @@ function renderRoundCard(round){
   const signList = document.createElement("div");
   signList.style.cssText = "margin-top:10px;border-top:1px solid var(--border);padding-top:10px;display:flex;flex-direction:column;gap:8px;";
 
-  round.forEach(entry => {
-    if(state.editingId === entry.id){
-      signList.appendChild(renderEditForm(entry));
+  groupEntriesBySign(round).forEach(group => {
+    const latest = group.items[group.items.length - 1];
+
+    if(state.editingId === latest.id){
+      signList.appendChild(renderEditForm(latest));
       return;
     }
 
     const row = document.createElement("div");
     row.style.cssText = "display:flex;justify-content:space-between;align-items:flex-start;gap:8px;";
 
-    const editedTag = entry.editedAt ? ` · edited ${new Date(entry.editedAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}` : "";
+    const editedTag = latest.editedAt ? ` · edited ${new Date(latest.editedAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}` : "";
     const left = document.createElement("div");
     left.innerHTML = `
-      <div style="font-size:13.5px;font-weight:600;">${SIGN_EMOJI[entry.signType]||""} ${escapeHtml(entry.signType)}</div>
-      ${entry.note ? `<div class="entry-note">"${escapeHtml(entry.note)}"</div>` : ""}
-      <div class="entry-meta" style="margin-top:2px;">${new Date(entry.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}${editedTag}</div>
+      <div style="font-size:13.5px;font-weight:600;">${SIGN_EMOJI[group.signType]||""} ${escapeHtml(group.signType)}${group.items.length>1 ? `<span class="countbadge">×${group.items.length}</span>` : ""}</div>
+      <div class="entry-meta" style="margin-top:2px;">${new Date(latest.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}${editedTag}</div>
     `;
     row.appendChild(left);
 
-    if(entry.teamId === state.teamId){
+    if(latest.teamId === state.teamId){
       const btnRow = document.createElement("div");
       btnRow.style.cssText = "display:flex;gap:6px;flex-shrink:0;";
       const editBtn = document.createElement("button");
       editBtn.className = "backbtn";
       editBtn.style.cssText = "margin-bottom:0;padding:6px 10px;font-size:12px;";
       editBtn.textContent = "Edit";
-      editBtn.onclick = () => startEdit(entry);
+      editBtn.onclick = () => startEdit(latest);
       const delBtn = document.createElement("button");
       delBtn.className = "delbtn";
       delBtn.style.cssText = "padding:6px 10px;font-size:12px;";
-      delBtn.textContent = "Delete";
-      delBtn.onclick = () => deleteWeeklyEntry(entry);
+      delBtn.textContent = group.items.length > 1 ? "Delete one" : "Delete";
+      delBtn.onclick = () => deleteWeeklyEntry(latest);
       btnRow.appendChild(editBtn);
       btnRow.appendChild(delBtn);
       row.appendChild(btnRow);
@@ -859,12 +970,6 @@ function renderEditForm(entry){
   });
   select.onchange = (e) => { state.editDraft.signType = e.target.value; };
   wrap.appendChild(select);
-
-  wrap.appendChild(rowTitle("Note"));
-  const noteInput = document.createElement("textarea");
-  noteInput.value = state.editDraft.note;
-  noteInput.oninput = (e) => { state.editDraft.note = e.target.value; };
-  wrap.appendChild(noteInput);
 
   wrap.appendChild(rowTitle("Calibration Session ID"));
   const calInput = document.createElement("input");
@@ -910,6 +1015,7 @@ function escapeHtml(s){
 }
 
 render();
+if(STUDY_ID !== "default") loadStudy();
 </script>
 </body>
 </html>
