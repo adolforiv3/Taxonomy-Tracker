@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Taxonomy Logger</title>
+<style>
+  :root{
+    --bg:#eef0f3; --surface:#ffffff; --surface2:#ffffff; --border:#dcdfe4;
+    --text:#1b2430; --muted:#67707c; --accent:#0f2647; --accent2:#a8813c;
+    --accent-text:#ffffff; --danger:#b3392f; --good:#1f6f4d;
+    --shadow:0 1px 2px rgba(15,38,71,.06), 0 6px 16px rgba(15,38,71,.06);
+    --shadow-sm:0 1px 2px rgba(15,38,71,.05);
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;height:100%;background:var(--bg);color:var(--text);
+    font-family:"Söhne","Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+    overscroll-behavior:none;-webkit-font-smoothing:antialiased;}
+  #app{display:flex;flex-direction:column;height:100vh;height:100dvh;max-width:520px;margin:0 auto;
+    background:var(--bg);}
+
+  /* Desktop: keep the phone-shaped layout legible without stretching tap targets absurdly wide */
+  @media (min-width:700px){
+    body{display:flex;justify-content:center;align-items:flex-start;user-select:auto;background:#dde1e7;}
+    #app{height:94vh;margin-top:3vh;border-radius:16px;overflow:hidden;
+      box-shadow:0 20px 60px rgba(15,38,71,.18), 0 2px 8px rgba(15,38,71,.08);
+      border:1px solid var(--border);}
+    main{overscroll-behavior:contain;}
+  }
+  @media (max-width:699px){ body{user-select:none;} }
+
+  header{padding:18px 20px 16px;background:var(--accent);display:flex;align-items:center;justify-content:space-between;gap:8px;
+    border-bottom:1px solid rgba(255,255,255,.08);}
+  header h1{font-size:15px;margin:0;letter-spacing:2px;font-weight:700;color:#fff;}
+  header .brandmark{width:8px;height:8px;border-radius:2px;background:var(--accent2);display:inline-block;margin-right:10px;
+    transform:rotate(45deg);}
+  header .livepill{margin-left:auto;font-size:10.5px;font-weight:700;letter-spacing:.6px;color:#cfe0ff;
+    display:flex;align-items:center;gap:6px;}
+  header .livedot{width:7px;height:7px;border-radius:50%;background:#3ddc84;box-shadow:0 0 0 3px rgba(61,220,132,.25);}
+
+  .ctxbar{font-size:12.5px;color:var(--muted);padding:10px 20px;border-bottom:1px solid var(--border);
+    display:flex;flex-wrap:wrap;gap:5px 14px;background:var(--surface);align-items:center;}
+  .ctxbar b{color:var(--text);font-weight:600;}
+  .ctxbar button{margin-left:auto;background:transparent;border:1px solid var(--border);color:var(--accent);
+    border-radius:7px;padding:5px 12px;font-size:12px;font-weight:600;}
+
+  nav.tabs{display:flex;background:var(--surface);border-bottom:1px solid var(--border);}
+  nav.tabs button{flex:1;padding:14px 4px;background:transparent;color:var(--muted);border:none;
+    font-size:14px;font-weight:600;border-bottom:2px solid transparent;letter-spacing:.2px;}
+  nav.tabs button.active{color:var(--accent);border-bottom-color:var(--accent2);}
+
+  main{flex:1;overflow-y:auto;padding:16px 20px;padding-bottom:100px;}
+
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .tile{min-height:60px;background:var(--surface);border:1px solid var(--border);border-radius:10px;
+    color:var(--text);font-size:15px;font-weight:600;padding:12px;display:flex;align-items:center;justify-content:center;
+    text-align:center;line-height:1.25;box-shadow:var(--shadow-sm);}
+  .tile:active{background:var(--accent);color:var(--accent-text);border-color:var(--accent);}
+  .tile.selected{background:var(--accent);color:var(--accent-text);border-color:var(--accent);box-shadow:var(--shadow);}
+  .tile.wide{grid-column:1/-1;}
+
+  .icon-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;}
+  .icon-tile{aspect-ratio:1;background:var(--surface);border:1px solid var(--border);border-radius:14px;
+    color:var(--text);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;
+    box-shadow:var(--shadow-sm);padding:10px 6px;}
+  .icon-tile-emoji{font-size:34px;line-height:1;}
+  .icon-tile-label{font-size:12.5px;font-weight:600;text-align:center;line-height:1.2;}
+  .icon-tile:active{background:var(--accent);color:#fff;border-color:var(--accent);}
+  .icon-tile:active .icon-tile-emoji{transform:scale(1.08);}
+  @media (min-width:400px){ .icon-grid{grid-template-columns:repeat(3,1fr);} }
+
+  .backbtn{background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:9px;
+    padding:10px 14px;font-size:13.5px;font-weight:600;margin-bottom:12px;box-shadow:var(--shadow-sm);}
+
+  .section-label{font-size:11.5px;text-transform:uppercase;letter-spacing:1.4px;color:var(--muted);margin:18px 2px 10px;font-weight:700;}
+  .section-label:first-child{margin-top:2px;}
+
+  textarea, select, input{width:100%;background:var(--surface);border:1px solid var(--border);color:var(--text);
+    border-radius:9px;padding:12px;font-size:16px;font-family:inherit;box-shadow:var(--shadow-sm);}
+  textarea{resize:none;min-height:56px;}
+  textarea:focus, input:focus{outline:none;border-color:var(--accent2);}
+
+  .logbtn-wrap{position:fixed;bottom:0;left:0;right:0;max-width:520px;margin:0 auto;padding:14px 20px 20px;
+    background:linear-gradient(to top, var(--bg) 65%, transparent);}
+  .logbtn{width:100%;padding:17px;font-size:16px;font-weight:700;border:none;border-radius:11px;
+    background:var(--accent);color:#fff;letter-spacing:.3px;box-shadow:0 8px 20px rgba(15,38,71,.25);}
+  .logbtn:disabled{background:#c7ccd3;color:#8b929c;box-shadow:none;}
+
+  .entry{background:var(--surface);border:1px solid var(--border);border-radius:11px;padding:14px 16px;margin-bottom:10px;
+    box-shadow:var(--shadow-sm);}
+  .entry-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;}
+  .entry-taxonomy{font-size:14.5px;font-weight:700;color:var(--text);}
+  .entry-meta{font-size:12px;color:var(--muted);margin-top:4px;}
+  .entry-note{font-size:13px;color:var(--text);margin-top:6px;font-style:italic;opacity:.75;}
+  .delbtn{background:transparent;border:1px solid var(--border);color:var(--danger);border-radius:8px;
+    padding:7px 12px;font-size:12.5px;font-weight:700;flex-shrink:0;}
+  .empty{color:var(--muted);text-align:center;padding:40px 10px;font-size:14px;}
+
+  .toast{position:fixed;bottom:104px;left:50%;transform:translateX(-50%);background:var(--accent);color:#fff;
+    padding:11px 22px;border-radius:30px;font-weight:600;font-size:13.5px;z-index:50;
+    box-shadow:0 10px 30px rgba(15,38,71,.3);letter-spacing:.2px;max-width:85%;text-align:center;}
+
+  .exportbtn{width:100%;padding:15px;font-size:15px;font-weight:700;border:none;border-radius:10px;
+    background:var(--accent2);color:#fff;margin-bottom:12px;letter-spacing:.2px;box-shadow:0 6px 16px rgba(168,129,60,.3);}
+
+  .weekbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px;}
+  .weekbar .weeklabel{font-size:13px;color:var(--muted);}
+  .weekbar .weeklabel b{color:var(--text);}
+  .refreshbtn{background:var(--surface);border:1px solid var(--border);color:var(--accent);border-radius:8px;
+    padding:8px 12px;font-size:12.5px;font-weight:700;box-shadow:var(--shadow-sm);flex-shrink:0;}
+
+  .teampill{display:inline-block;background:#eef2f8;color:var(--accent);border-radius:6px;padding:2px 7px;
+    font-size:11px;font-weight:700;margin-right:6px;}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+/* ---------------- TAXONOMY: single category "Sign Type" ---------------- */
+const SIGN_EMOJI = {
+  "Construction Sign": "🚧",
+  "Crosswalk": "🦓",
+  "Cycling": "🚴",
+  "Do Not Enter": "⛔",
+  "End Restrictions": "🔚",
+  "No Cycling": "🚳",
+  "No Pedestrian Sign": "🚷",
+  "One Way (left)": "⬅️",
+  "One Way (right)": "➡️",
+  "Parking Area": "🅿️",
+  "Pedestrian Crossing Sign": "🚸",
+  "Pedestrian Zone Ends Sign": "🏁",
+  "Pedestrian Zone Sign": "🚶",
+  "Railroad Crossing Sign": "🚆",
+  "School Zone": "🏫",
+  "Stop Sign": "🛑",
+  "Street Name Sign": "🪧",
+  "Traffic Light": "🚦",
+  "Trailhead Sign": "🥾",
+  "Turn Restrictions": "↩️"
+};
+const SIGN_TYPES = Object.keys(SIGN_EMOJI).sort((a,b) => a.localeCompare(b));
+
+const PROTOCOLS = ["Walk", "Exploration", "Fast-Walk"];
+const TEAM_IDS = [1,2,3,4,5,6];
+const ENVIRONMENTS = [
+  "Urban Street",
+  "Near Restaurant",
+  "Popular Landmark",
+  "Near Corporate",
+  "Residential",
+  "Parking Garages and Parking Lots",
+  "City Parks",
+  "Gas Station"
+];
+const OBJECT_KITS = [1,2,3,4,5,6,7,8,9,10];
+
+function isoWeek(dateStr){
+  const d = new Date(dateStr + "T00:00:00Z");
+  const target = new Date(d.valueOf());
+  const dayNr = (d.getUTCDay() + 6) % 7;
+  target.setUTCDate(target.getUTCDate() - dayNr + 3);
+  const firstThursday = target.valueOf();
+  target.setUTCMonth(0, 1);
+  if(target.getUTCDay() !== 4){
+    target.setUTCMonth(0, 1 + ((4 - target.getUTCDay() + 7) % 7));
+  }
+  const week = 1 + Math.ceil((firstThursday - target.valueOf()) / (7*24*3600*1000));
+  return `${d.getUTCFullYear()}-W${String(week).padStart(2,"0")}`;
+}
+
+/* ---------------- STATE ---------------- */
+let state = {
+  date: new Date().toISOString().slice(0,10),
+  teamId: Number(localStorage.getItem("tl_teamId")) || null,
+  protocol: null,
+  environment: null,
+  objectKit: null,
+  route: "",
+  calibrationSessionId: "",
+  captureSessionId: "",
+  sessionNotes: "",
+  tab: "log", // 'log' entry tab or 'weekly'
+  note: "",
+  cart: [], // pending items for the current round
+  reviewingFinish: false, // showing the calibration/capture ID + notes step before finalizing a round
+  submitting: false,
+  weekly: { week: isoWeek(new Date().toISOString().slice(0,10)), entries: [], loading: false },
+  toast: null
+};
+
+let pollTimer = null;
+
+function setupComplete(){
+  return state.teamId && state.protocol && state.environment && state.objectKit && state.route.trim();
+}
+
+/* ---------------- RENDER ---------------- */
+const app = document.getElementById("app");
+
+function render(){
+  const prevMain = app.querySelector("main");
+  const prevScroll = prevMain ? prevMain.scrollTop : 0;
+
+  app.innerHTML = "";
+  app.appendChild(renderHeader());
+  if(!setupComplete()){
+    app.appendChild(renderSetup());
+  } else {
+    app.appendChild(renderCtxBar());
+    app.appendChild(renderTabs());
+    if(state.tab === "log"){
+      app.appendChild(renderLogFlow());
+    } else {
+      app.appendChild(renderWeekly());
+    }
+  }
+  if(state.toast){
+    const t = document.createElement("div");
+    t.className = "toast";
+    t.textContent = state.toast;
+    app.appendChild(t);
+  }
+
+  const newMain = app.querySelector("main");
+  if(newMain) newMain.scrollTop = prevScroll;
+}
+
+function renderHeader(){
+  const h = document.createElement("header");
+  h.innerHTML = `<h1><span class="brandmark"></span>TAXONOMY LOGGER</h1><span class="livepill"><span class="livedot"></span>LIVE</span>`;
+  return h;
+}
+
+function renderCtxBar(){
+  const bar = document.createElement("div");
+  bar.className = "ctxbar";
+  bar.innerHTML = `
+    <span>${state.date}</span>
+    <span>Team <b>${state.teamId}</b></span>
+    <span><b>${state.protocol}</b></span>
+    <span><b>${state.environment}</b></span>
+    <span>Kit <b>${state.objectKit}</b></span>
+    <span>Rt <b>${escapeHtml(state.route)}</b></span>
+  `;
+  const btn = document.createElement("button");
+  btn.textContent = "Change";
+  btn.onclick = () => {
+    state.protocol=null; state.environment=null; state.objectKit=null;
+    state.route="";
+    render();
+  };
+  bar.appendChild(btn);
+  return bar;
+}
+
+function renderTabs(){
+  const nav = document.createElement("nav");
+  nav.className = "tabs";
+  const t1 = document.createElement("button");
+  t1.textContent = "Log Entry";
+  t1.className = state.tab==="log" ? "active" : "";
+  t1.onclick = () => { state.tab="log"; stopPolling(); render(); };
+  const t2 = document.createElement("button");
+  t2.textContent = "Weekly Document";
+  t2.className = state.tab==="weekly" ? "active" : "";
+  t2.onclick = () => { state.tab="weekly"; render(); fetchWeekly(); startPolling(); };
+  nav.appendChild(t1); nav.appendChild(t2);
+  return nav;
+}
+
+function renderSetup(){
+  const main = document.createElement("main");
+  main.style.paddingBottom = "20px";
+
+  const page1Done = state.teamId && state.protocol && state.objectKit && state.route.trim();
+
+  if(!page1Done){
+    main.appendChild(rowTitle("Team ID"));
+    main.appendChild(tileGrid(TEAM_IDS.map(t=>({label:"Team "+t, sel: state.teamId===t, onClick:()=>{state.teamId=t; localStorage.setItem("tl_teamId", t); render();}}))));
+
+    main.appendChild(rowTitle("Protocol"));
+    main.appendChild(tileGrid(PROTOCOLS.map(m=>({label:m, wide:true, sel: state.protocol===m, onClick:()=>{state.protocol=m; render();}}))));
+
+    main.appendChild(rowTitle("Object Kit"));
+    main.appendChild(tileGrid(OBJECT_KITS.map(k=>({label:"Kit "+k, sel: state.objectKit===k, onClick:()=>{state.objectKit=k; render();}}))));
+
+    main.appendChild(rowTitle("Route"));
+    const routeInput = document.createElement("input");
+    routeInput.type = "text";
+    routeInput.placeholder = "e.g. Main St Loop";
+    routeInput.value = state.route;
+    routeInput.oninput = (e) => { state.route = e.target.value; };
+    main.appendChild(routeInput);
+
+    const nextBtn = document.createElement("button");
+    nextBtn.className = "logbtn";
+    nextBtn.style.marginTop = "20px";
+    nextBtn.textContent = "Next";
+    nextBtn.onclick = () => {
+      if(!state.teamId || !state.protocol || !state.objectKit || !state.route.trim()){
+        showToast("Team ID, Protocol, Object Kit, and Route are required");
+        return;
+      }
+      render();
+    };
+    main.appendChild(nextBtn);
+  } else {
+    const back = document.createElement("button");
+    back.className = "backbtn";
+    back.textContent = "‹ Back";
+    back.onclick = () => { state.route = ""; render(); };
+    main.appendChild(back);
+
+    main.appendChild(rowTitle("Environment Type"));
+    main.appendChild(tileGrid(ENVIRONMENTS.map(e=>({label:e, wide:true, sel: state.environment===e, onClick:()=>{state.environment=e; render();}}))));
+  }
+
+  return main;
+}
+
+function rowTitle(txt){
+  const d = document.createElement("div");
+  d.className = "section-label";
+  d.textContent = txt;
+  return d;
+}
+
+function tile(label, selected, onClick, wide){
+  const b = document.createElement("button");
+  b.className = "tile" + (selected?" selected":"") + (wide?" wide":"");
+  b.textContent = label;
+  b.onclick = onClick;
+  return b;
+}
+
+function tileGrid(items){
+  const g = document.createElement("div");
+  g.className = "grid";
+  items.forEach(it => g.appendChild(tile(it.label, it.sel, it.onClick, it.wide)));
+  return g;
+}
+
+function iconGrid(items){
+  const g = document.createElement("div");
+  g.className = "icon-grid";
+  items.forEach(it => {
+    const b = document.createElement("button");
+    b.className = "icon-tile";
+    b.innerHTML = `<span class="icon-tile-emoji">${it.emoji}</span><span class="icon-tile-label">${escapeHtml(it.label)}</span>`;
+    b.onclick = it.onClick;
+    g.appendChild(b);
+  });
+  return g;
+}
+
+function renderLogFlow(){
+  if(state.reviewingFinish) return renderFinishReview();
+
+  const main = document.createElement("main");
+
+  main.appendChild(rowTitle("Sign Type"));
+  main.appendChild(iconGrid(SIGN_TYPES.map(s=>({
+    label: s, emoji: SIGN_EMOJI[s], onClick:()=>{ addToCart(s); }
+  }))));
+
+  main.appendChild(rowTitle("Other / Note (optional)"));
+  const ta = document.createElement("textarea");
+  ta.placeholder = "Optional note for edge cases...";
+  ta.value = state.note;
+  ta.oninput = (e) => { state.note = e.target.value; };
+  main.appendChild(ta);
+
+  main.appendChild(renderCart());
+
+  const wrap = document.createElement("div");
+  wrap.className = "logbtn-wrap";
+  const finishBtn = document.createElement("button");
+  finishBtn.className = "logbtn";
+  finishBtn.textContent = state.cart.length
+    ? `✓ Finish Round (${state.cart.length})`
+    : "Add items to start a round";
+  finishBtn.disabled = state.cart.length === 0;
+  finishBtn.onclick = () => { state.reviewingFinish = true; render(); };
+  wrap.appendChild(finishBtn);
+  main.appendChild(wrap);
+
+  return main;
+}
+
+function renderFinishReview(){
+  const main = document.createElement("main");
+
+  const back = document.createElement("button");
+  back.className = "backbtn";
+  back.textContent = "‹ Back to signs";
+  back.onclick = () => { state.reviewingFinish = false; render(); };
+  main.appendChild(back);
+
+  main.appendChild(rowTitle(`Complete Round (${state.cart.length} signs)`));
+
+  main.appendChild(rowTitle("Calibration Session ID"));
+  const calInput = document.createElement("input");
+  calInput.type = "text";
+  calInput.placeholder = "e.g. CAL-014";
+  calInput.value = state.calibrationSessionId;
+  calInput.oninput = (e) => { state.calibrationSessionId = e.target.value; };
+  main.appendChild(calInput);
+
+  main.appendChild(rowTitle("Capture Session ID"));
+  const capInput = document.createElement("input");
+  capInput.type = "text";
+  capInput.placeholder = "e.g. CAP-014";
+  capInput.value = state.captureSessionId;
+  capInput.oninput = (e) => { state.captureSessionId = e.target.value; };
+  main.appendChild(capInput);
+
+  main.appendChild(rowTitle("Notes (details or issues, optional)"));
+  const notesArea = document.createElement("textarea");
+  notesArea.placeholder = "Anything worth flagging for this capture...";
+  notesArea.value = state.sessionNotes;
+  notesArea.oninput = (e) => { state.sessionNotes = e.target.value; };
+  main.appendChild(notesArea);
+
+  const wrap = document.createElement("div");
+  wrap.className = "logbtn-wrap";
+  const completeBtn = document.createElement("button");
+  completeBtn.className = "logbtn";
+  completeBtn.textContent = state.submitting ? "Saving…" : "✓ Complete Round";
+  completeBtn.disabled = state.submitting;
+  completeBtn.onclick = finishRound;
+  wrap.appendChild(completeBtn);
+  main.appendChild(wrap);
+
+  return main;
+}
+
+function renderCart(){
+  const section = document.createElement("div");
+  if(state.cart.length === 0) return section;
+
+  section.appendChild(rowTitle(`In This Round (${state.cart.length})`));
+
+  state.cart.slice().reverse().forEach(item => {
+    const el = document.createElement("div");
+    el.className = "entry";
+    const time = new Date(item.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+    el.innerHTML = `
+      <div class="entry-top">
+        <div>
+          <div class="entry-taxonomy">${item.signType}</div>
+          <div class="entry-meta">${time}</div>
+          ${item.note ? `<div class="entry-note">"${escapeHtml(item.note)}"</div>` : ""}
+        </div>
+      </div>
+    `;
+    const delBtn = document.createElement("button");
+    delBtn.className = "delbtn";
+    delBtn.textContent = "Remove";
+    delBtn.onclick = () => {
+      state.cart = state.cart.filter(c => c.id !== item.id);
+      render();
+    };
+    el.querySelector(".entry-top").appendChild(delBtn);
+    section.appendChild(el);
+  });
+
+  return section;
+}
+
+function addToCart(signType){
+  const item = {
+    id: Date.now() + "-" + Math.random().toString(36).slice(2,7),
+    date: state.date,
+    timestamp: new Date().toISOString(),
+    teamId: state.teamId,
+    protocol: state.protocol,
+    environment: state.environment,
+    objectKit: state.objectKit,
+    route: state.route,
+    signType: signType,
+    note: state.note.trim()
+  };
+  state.cart.push(item);
+  state.note = "";
+  showToast("Added: " + signType + " (" + state.cart.length + " in round)");
+  render();
+}
+
+async function finishRound(){
+  if(state.cart.length === 0 || state.submitting) return;
+  if(!state.calibrationSessionId.trim() || !state.captureSessionId.trim()){
+    showToast("Calibration ID and Capture ID are required");
+    return;
+  }
+  const count = state.cart.length;
+  const finalized = state.cart.slice().reverse().map(item => ({
+    ...item,
+    calibrationSessionId: state.calibrationSessionId,
+    captureSessionId: state.captureSessionId,
+    sessionNotes: state.sessionNotes
+  }));
+
+  state.submitting = true;
+  render();
+
+  try {
+    const res = await fetch("/api/entries", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ entries: finalized })
+    });
+    if(!res.ok) throw new Error("Save failed");
+
+    state.cart = [];
+    state.reviewingFinish = false;
+    state.calibrationSessionId = "";
+    state.captureSessionId = "";
+    state.sessionNotes = "";
+    state.submitting = false;
+    showToast(`Round complete — ${count} entries saved to the weekly document`);
+    render();
+  } catch (err) {
+    state.submitting = false;
+    showToast("Couldn't save — check connection and try again");
+    render();
+  }
+}
+
+function showToast(msg){
+  state.toast = msg;
+  render();
+  setTimeout(()=>{ state.toast=null; render(); }, 1800);
+}
+
+function startPolling(){
+  stopPolling();
+  pollTimer = setInterval(() => { if(state.tab === "weekly") fetchWeekly(); }, 20000);
+}
+
+function stopPolling(){
+  if(pollTimer){ clearInterval(pollTimer); pollTimer = null; }
+}
+
+async function fetchWeekly(){
+  state.weekly.loading = true;
+  render();
+  try {
+    const res = await fetch(`/api/entries?week=${encodeURIComponent(state.weekly.week)}`);
+    const data = await res.json();
+    state.weekly.entries = (data.entries || []).sort((a,b) => String(b.timestamp).localeCompare(String(a.timestamp)));
+  } catch (err) {
+    showToast("Couldn't load the weekly document");
+  }
+  state.weekly.loading = false;
+  render();
+}
+
+async function deleteWeeklyEntry(entry){
+  try {
+    await fetch("/api/entries", {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ week: state.weekly.week, id: entry.id })
+    });
+    state.weekly.entries = state.weekly.entries.filter(e => e.id !== entry.id);
+    render();
+  } catch (err) {
+    showToast("Couldn't delete — try again");
+  }
+}
+
+function renderWeekly(){
+  const main = document.createElement("main");
+
+  const weekBar = document.createElement("div");
+  weekBar.className = "weekbar";
+  weekBar.innerHTML = `<div class="weeklabel">Week <b>${state.weekly.week}</b> · all teams · ${state.weekly.entries.length} entries</div>`;
+  const refreshBtn = document.createElement("button");
+  refreshBtn.className = "refreshbtn";
+  refreshBtn.textContent = state.weekly.loading ? "Refreshing…" : "↻ Refresh";
+  refreshBtn.onclick = fetchWeekly;
+  weekBar.appendChild(refreshBtn);
+  main.appendChild(weekBar);
+
+  const exportBtn = document.createElement("button");
+  exportBtn.className = "exportbtn";
+  exportBtn.textContent = "⬇ Download Weekly CSV (all teams)";
+  exportBtn.onclick = () => {
+    window.location.href = `/api/entries?week=${encodeURIComponent(state.weekly.week)}&format=csv`;
+  };
+  main.appendChild(exportBtn);
+
+  if(state.weekly.entries.length === 0){
+    const e = document.createElement("div");
+    e.className = "empty";
+    e.textContent = state.weekly.loading ? "Loading…" : "No entries logged this week yet.";
+    main.appendChild(e);
+    return main;
+  }
+
+  state.weekly.entries.forEach(entry => {
+    const el = document.createElement("div");
+    el.className = "entry";
+    const time = new Date(entry.timestamp).toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
+    el.innerHTML = `
+      <div class="entry-top">
+        <div>
+          <div class="entry-taxonomy"><span class="teampill">Team ${entry.teamId}</span>${entry.signType}</div>
+          <div class="entry-meta">${time} · ${entry.protocol} · ${entry.environment} · Kit ${entry.objectKit} · Rt ${escapeHtml(entry.route)}</div>
+          <div class="entry-meta">Cal ${escapeHtml(entry.calibrationSessionId||"")} · Cap ${escapeHtml(entry.captureSessionId||"")}</div>
+          ${entry.note ? `<div class="entry-note">"${escapeHtml(entry.note)}"</div>` : ""}
+          ${entry.sessionNotes ? `<div class="entry-note">Session: "${escapeHtml(entry.sessionNotes)}"</div>` : ""}
+        </div>
+      </div>
+    `;
+    const delBtn = document.createElement("button");
+    delBtn.className = "delbtn";
+    delBtn.textContent = "Delete";
+    delBtn.onclick = () => deleteWeeklyEntry(entry);
+    el.querySelector(".entry-top").appendChild(delBtn);
+    main.appendChild(el);
+  });
+
+  return main;
+}
+
+function escapeHtml(s){
+  return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+render();
+</script>
+</body>
+</html>
