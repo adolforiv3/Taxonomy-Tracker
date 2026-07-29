@@ -97,7 +97,9 @@
   .studyrow .meta{font-size:12.5px;color:var(--ink-soft);}
   .studyrow .actions{margin-left:auto;display:flex;gap:6px;}
   .studyrow button{background:transparent;border:1px solid var(--border);color:var(--teal);border-radius:var(--r-sm);
-    padding:7px 12px;font-size:12px;font-weight:600;}
+    padding:7px 12px;font-size:12px;font-weight:600;transition:background .15s ease,border-color .15s ease;}
+  .studyrow button.del{color:var(--red);}
+  @media (hover:hover){ .studyrow button.del:hover{ background:var(--red-bg); border-color:var(--red); } }
   .empty{color:var(--ink-soft);text-align:center;padding:30px 0;font-size:13.5px;}
 </style>
 </head>
@@ -535,9 +537,15 @@ function renderStudyList(){
     editBtn.textContent = "Edit";
     editBtn.onclick = () => loadStudyForEdit(s.id);
 
+    const deleteBtn = document.createElement("button");
+    deleteBtn.className = "del";
+    deleteBtn.textContent = "Delete";
+    deleteBtn.onclick = () => deleteStudy(s.id, s.name);
+
     actions.appendChild(fieldBtn);
     actions.appendChild(adminBtn);
     actions.appendChild(editBtn);
+    actions.appendChild(deleteBtn);
     row.appendChild(actions);
     list.appendChild(row);
   });
@@ -563,6 +571,27 @@ async function loadStudyForEdit(id){
     window.scrollTo({top:0, behavior:"smooth"});
   } catch (err) {
     alert("Couldn't load study for editing.");
+  }
+}
+
+async function deleteStudy(id, name){
+  if(!confirm(`Delete "${name}"? This removes the study definition and its field/admin links. Any entries already logged under it are not affected.`)) return;
+  try {
+    const res = await fetch("/api/studies", {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id })
+    });
+    if(!res.ok) throw new Error("Delete failed");
+    if(state.form.editingId === id){
+      state.form = blankForm();
+      state.reviewingStudy = false;
+      state.launchResult = null;
+    }
+    state.studies = state.studies.filter(s => s.id !== id);
+    render();
+  } catch (err) {
+    alert("Couldn't delete study — try again.");
   }
 }
 

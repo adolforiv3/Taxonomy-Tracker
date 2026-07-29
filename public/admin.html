@@ -180,6 +180,8 @@ let state = {
   dayFilter: "all",
   editingId: null,
   editDraft: null,
+  editingRunKey: null,
+  editRunDraft: null,
   expandedTeams: new Set()
 };
 let pollTimer = null;
@@ -405,7 +407,7 @@ function renderTeamAccordion(entries){
     header.innerHTML = `
       <span class="chevron${isOpen ? " open" : ""}">›</span>
       <span class="teampill">Team ${teamId}</span>
-      <span class="summary">${dateLabel} · ${rounds.length} round${rounds.length===1?"":"s"} · ${teamEntries.length} sign${teamEntries.length===1?"":"s"}</span>
+      <span class="summary">${dateLabel} · ${rounds.length} run${rounds.length===1?"":"s"} · ${teamEntries.length} sign${teamEntries.length===1?"":"s"}</span>
     `;
     header.onclick = () => {
       if(isOpen) state.expandedTeams.delete(teamId); else state.expandedTeams.add(teamId);
@@ -426,18 +428,54 @@ function renderTeamAccordion(entries){
   return container;
 }
 
+function runKeyFor(entry){
+  return `${entry.teamId}::${entry.captureSessionId || entry.calibrationSessionId || entry.id}`;
+}
+
 function renderRoundBlock(round){
   const first = round[0];
+  const runKey = runKeyFor(first);
   const block = document.createElement("div");
   block.className = "round-block";
 
+  if(state.editingRunKey === runKey){
+    block.appendChild(renderRunEditForm(round, runKey));
+    return block;
+  }
+
   const time = new Date(first.timestamp).toLocaleString([], {weekday:'short', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
+  const metaRow = document.createElement("div");
+  metaRow.style.cssText = "display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px;";
   const meta = document.createElement("div");
   meta.className = "round-meta";
+  meta.style.marginBottom = "0";
   meta.innerHTML = `<b>${round.length} sign${round.length===1?"":"s"}</b> · ${time} · ${first.protocol} · ${first.environment} · Kit ${first.objectKit} · Rt ${escapeHtml(first.route)}
     · Cal ${escapeHtml(first.calibrationSessionId||"")} · Cap ${escapeHtml(first.captureSessionId||"")}
     ${first.sessionNotes ? `<br>Session: "${escapeHtml(first.sessionNotes)}"` : ""}`;
-  block.appendChild(meta);
+  metaRow.appendChild(meta);
+
+  const runActions = document.createElement("div");
+  runActions.style.cssText = "display:flex;gap:6px;flex-shrink:0;";
+  const editRunBtn = document.createElement("button");
+  editRunBtn.className = "rowbtn edit";
+  editRunBtn.textContent = "Edit Run";
+  editRunBtn.onclick = () => {
+    state.editingRunKey = runKey;
+    state.editRunDraft = {
+      calibrationSessionId: first.calibrationSessionId || "",
+      captureSessionId: first.captureSessionId || "",
+      sessionNotes: first.sessionNotes || ""
+    };
+    render();
+  };
+  const deleteRunBtn = document.createElement("button");
+  deleteRunBtn.className = "rowbtn del";
+  deleteRunBtn.textContent = "Delete Run";
+  deleteRunBtn.onclick = () => deleteRun(round);
+  runActions.appendChild(editRunBtn);
+  runActions.appendChild(deleteRunBtn);
+  metaRow.appendChild(runActions);
+  block.appendChild(metaRow);
 
   groupEntriesBySign(round).forEach(group => {
     const latest = group.items[group.items.length - 1];
@@ -515,6 +553,92 @@ function renderEntryEditRow(entry){
   row.appendChild(actions);
 
   return row;
+}
+
+function renderRunEditForm(round, runKey){
+  const wrap = document.createElement("div");
+  wrap.className = "editrow";
+  wrap.style.cssText = "display:flex;flex-direction:column;gap:8px;";
+
+  const title = document.createElement("div");
+  title.style.cssText = "font-size:12px;font-weight:700;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.04em;";
+  title.textContent = `Editing Run (${round.length} sign${round.length===1?"":"s"})`;
+  wrap.appendChild(title);
+
+  const calInput = document.createElement("input");
+  calInput.type = "text";
+  calInput.placeholder = "Calibration Session ID";
+  calInput.value = state.editRunDraft.calibrationSessionId;
+  calInput.oninput = (e) => { state.editRunDraft.calibrationSessionId = e.target.value; };
+  wrap.appendChild(calInput);
+
+  const capInput = document.createElement("input");
+  capInput.type = "text";
+  capInput.placeholder = "Capture Session ID";
+  capInput.value = state.editRunDraft.captureSessionId;
+  capInput.oninput = (e) => { state.editRunDraft.captureSessionId = e.target.value; };
+  wrap.appendChild(capInput);
+
+  const notesInput = document.createElement("input");
+  notesInput.type = "text";
+  notesInput.placeholder = "Session notes";
+  notesInput.value = state.editRunDraft.sessionNotes;
+  notesInput.oninput = (e) => { state.editRunDraft.sessionNotes = e.target.value; };
+  wrap.appendChild(notesInput);
+
+  const actions = document.createElement("div");
+  actions.style.cssText = "display:flex;gap:6px;";
+  const saveBtn = document.createElement("button");
+  saveBtn.className = "rowbtn edit";
+  saveBtn.textContent = "Save Run";
+  saveBtn.onclick = () => bulkSaveRun(round, runKey);
+  const cancelBtn = document.createElement("button");
+  cancelBtn.className = "rowbtn";
+  cancelBtn.textContent = "Cancel";
+  cancelBtn.onclick = () => { state.editingRunKey = null; state.editRunDraft = null; render(); };
+  actions.appendChild(saveBtn);
+  actions.appendChild(cancelBtn);
+  wrap.appendChild(actions);
+
+  return wrap;
+}
+
+async function bulkSaveRun(round, runKey){
+  const updates = { ...state.editRunDraft };
+  try {
+    const results = await Promise.all(round.map(entry =>
+      fetch("/api/entries", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ week: state.week, id: entry.id, studyId: STUDY_ID, updates })
+      }).then(res => { if(!res.ok) throw new Error("Save failed"); return res.json(); })
+    ));
+    const updatedById = new Map(results.map(r => [r.entry.id, r.entry]));
+    state.entries = state.entries.map(e => updatedById.has(e.id) ? updatedById.get(e.id) : e);
+    state.editingRunKey = null;
+    state.editRunDraft = null;
+    render();
+  } catch (err) {
+    alert("Couldn't save run — some signs may not have updated. Try again.");
+  }
+}
+
+async function deleteRun(round){
+  if(!confirm(`Delete this entire run (${round.length} sign${round.length===1?"":"s"}) from Team ${round[0].teamId}? This cannot be undone.`)) return;
+  try {
+    await Promise.all(round.map(entry =>
+      fetch("/api/entries", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ week: state.week, id: entry.id, studyId: STUDY_ID })
+      })
+    ));
+    const ids = new Set(round.map(e => e.id));
+    state.entries = state.entries.filter(e => !ids.has(e.id));
+    render();
+  } catch (err) {
+    alert("Couldn't delete the full run — some signs may remain. Try again.");
+  }
 }
 
 async function fetchEntries(){

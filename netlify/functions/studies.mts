@@ -91,6 +91,13 @@ export default async (req: Request, context: Context) => {
     return Response.json({ ok: true, study: sanitizeForList(merged) });
   }
 
+  if (req.method === "DELETE") {
+    const body = await req.json();
+    if (!body.id) return Response.json({ ok: false, error: "id is required" }, { status: 400 });
+    await store.delete(body.id);
+    return Response.json({ ok: true });
+  }
+
   return new Response("Method not allowed", { status: 405 });
 };
 

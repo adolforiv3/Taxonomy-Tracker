@@ -235,7 +235,7 @@ let state = {
   captureSessionId: "",
   sessionNotes: "",
   tab: "log", // 'log' entry tab or 'weekly'
-  cart: [], // pending items for the current round
+  cart: [], // pending items for the current run
   finishStep: null, // null | 'details' | 'review'
   submitting: false,
   weekly: { week: isoWeek(new Date().toISOString().slice(0,10)), entries: [], loading: false },
@@ -351,7 +351,7 @@ function renderSetupEditBar(){
   bar.innerHTML = `<span>Session Setup</span>`;
   const editBtn = document.createElement("button");
   editBtn.className = "navtoggle";
-  editBtn.textContent = "Edit →";
+  editBtn.textContent = "Edit Runs →";
   editBtn.onclick = () => { state.tab = "weekly"; render(); fetchWeekly(); startPolling(); };
   bar.appendChild(editBtn);
   return bar;
@@ -374,7 +374,7 @@ function renderCtxBar(){
   const navBtn = document.createElement("button");
   navBtn.className = "navtoggle";
   if(state.tab === "log"){
-    navBtn.textContent = "Edit →";
+    navBtn.textContent = "Edit Runs →";
     navBtn.onclick = () => { state.tab = "weekly"; render(); fetchWeekly(); startPolling(); };
   } else {
     navBtn.textContent = "← Home";
@@ -515,7 +515,7 @@ function renderLogFlow(){
   finishBtn.className = "logbtn";
   finishBtn.textContent = state.cart.length
     ? `Continue (${state.cart.length}) →`
-    : "Add items to start a round";
+    : "Add items to start a run";
   finishBtn.disabled = state.cart.length === 0;
   finishBtn.onclick = () => { state.finishStep = "details"; render(); };
   wrap.appendChild(finishBtn);
@@ -533,7 +533,7 @@ function renderFinishDetails(){
   back.onclick = () => { state.finishStep = null; render(); };
   main.appendChild(back);
 
-  main.appendChild(rowTitle(`Round Details (${state.cart.length} signs)`));
+  main.appendChild(rowTitle(`Run Details (${state.cart.length} signs)`));
   groupCartBySign(state.cart).forEach(group => main.appendChild(renderQtyGroup(group)));
 
   main.appendChild(rowTitle("Calibration Session ID"));
@@ -563,7 +563,7 @@ function renderFinishDetails(){
   wrap.className = "logbtn-wrap";
   const reviewBtn = document.createElement("button");
   reviewBtn.className = "logbtn";
-  reviewBtn.textContent = "Review Round →";
+  reviewBtn.textContent = "Review Run →";
   reviewBtn.onclick = () => {
     if(!state.calibrationSessionId.trim() || !state.captureSessionId.trim()){
       showToast("Calibration ID and Capture ID are required");
@@ -607,7 +607,7 @@ function renderFinishReviewFinal(){
   wrap.className = "logbtn-wrap";
   const completeBtn = document.createElement("button");
   completeBtn.className = "logbtn";
-  completeBtn.textContent = state.submitting ? "Saving…" : "✓ Submit Round";
+  completeBtn.textContent = state.submitting ? "Saving…" : "✓ Submit Run";
   completeBtn.disabled = state.submitting;
   completeBtn.onclick = finishRound;
   wrap.appendChild(completeBtn);
@@ -666,7 +666,7 @@ function renderCart(){
   const section = document.createElement("div");
   if(state.cart.length === 0) return section;
 
-  section.appendChild(rowTitle(`In This Round (${state.cart.length})`));
+  section.appendChild(rowTitle(`In This Run (${state.cart.length})`));
   groupCartBySign(state.cart).forEach(group => section.appendChild(renderQtyGroup(group)));
 
   return section;
@@ -689,7 +689,7 @@ function newCartItem(signType){
 
 function addToCart(signType){
   state.cart.push(newCartItem(signType));
-  showToast("Added: " + signType + " (" + state.cart.length + " in round)");
+  showToast("Added: " + signType + " (" + state.cart.length + " in run)");
   render();
 }
 
@@ -740,7 +740,7 @@ async function finishRound(){
     state.captureSessionId = "";
     state.sessionNotes = "";
     state.submitting = false;
-    showToast(`Round complete — ${count} entries saved to the weekly document`);
+    showToast(`Run complete — ${count} entries saved to the weekly document`);
     render();
   } catch (err) {
     state.submitting = false;
