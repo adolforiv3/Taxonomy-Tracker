@@ -430,7 +430,8 @@ function renderFinishReview(){
   back.onclick = () => { state.reviewingFinish = false; render(); };
   main.appendChild(back);
 
-  main.appendChild(rowTitle(`Complete Round (${state.cart.length} signs)`));
+  main.appendChild(rowTitle(`Review Before Submitting (${state.cart.length} signs)`));
+  main.appendChild(renderReviewList());
 
   main.appendChild(rowTitle("Calibration Session ID"));
   const calInput = document.createElement("input");
@@ -466,6 +467,47 @@ function renderFinishReview(){
   main.appendChild(wrap);
 
   return main;
+}
+
+function renderReviewList(){
+  const section = document.createElement("div");
+
+  state.cart.slice().reverse().forEach(item => {
+    const el = document.createElement("div");
+    el.className = "entry";
+
+    const select = document.createElement("select");
+    SIGN_TYPES.forEach(s => {
+      const opt = document.createElement("option");
+      opt.value = s; opt.textContent = `${SIGN_EMOJI[s]} ${s}`;
+      if(s === item.signType) opt.selected = true;
+      select.appendChild(opt);
+    });
+    select.onchange = (e) => { item.signType = e.target.value; };
+    select.style.marginBottom = "8px";
+    el.appendChild(select);
+
+    const noteInput = document.createElement("textarea");
+    noteInput.placeholder = "Note (optional)";
+    noteInput.value = item.note;
+    noteInput.oninput = (e) => { item.note = e.target.value; };
+    el.appendChild(noteInput);
+
+    const delBtn = document.createElement("button");
+    delBtn.className = "delbtn";
+    delBtn.style.marginTop = "8px";
+    delBtn.textContent = "Remove from round";
+    delBtn.onclick = () => {
+      state.cart = state.cart.filter(c => c.id !== item.id);
+      if(state.cart.length === 0) state.reviewingFinish = false;
+      render();
+    };
+    el.appendChild(delBtn);
+
+    section.appendChild(el);
+  });
+
+  return section;
 }
 
 function renderCart(){
@@ -669,49 +711,8 @@ function renderWeekly(){
     return main;
   }
 
-  state.weekly.entries.forEach(entry => {
-    const el = document.createElement("div");
-    el.className = "entry";
-
-    if(state.editingId === entry.id){
-      el.appendChild(renderEditForm(entry));
-      main.appendChild(el);
-      return;
-    }
-
-    const time = new Date(entry.timestamp).toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
-    const editedTag = entry.editedAt ? ` · edited ${new Date(entry.editedAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}` : "";
-    el.innerHTML = `
-      <div class="entry-top">
-        <div>
-          <div class="entry-taxonomy"><span class="teampill">Team ${entry.teamId}</span>${entry.signType}</div>
-          <div class="entry-meta">${time}${editedTag} · ${entry.protocol} · ${entry.environment} · Kit ${entry.objectKit} · Rt ${escapeHtml(entry.route)}</div>
-          <div class="entry-meta">Cal ${escapeHtml(entry.calibrationSessionId||"")} · Cap ${escapeHtml(entry.captureSessionId||"")}</div>
-          ${entry.note ? `<div class="entry-note">"${escapeHtml(entry.note)}"</div>` : ""}
-          ${entry.sessionNotes ? `<div class="entry-note">Session: "${escapeHtml(entry.sessionNotes)}"</div>` : ""}
-        </div>
-      </div>
-    `;
-
-    if(entry.teamId === state.teamId){
-      const btnRow = document.createElement("div");
-      btnRow.style.cssText = "display:flex;gap:8px;margin-top:10px;";
-      const editBtn = document.createElement("button");
-      editBtn.className = "backbtn";
-      editBtn.style.cssText = "margin-bottom:0;flex:1;";
-      editBtn.textContent = "Edit";
-      editBtn.onclick = () => startEdit(entry);
-      const delBtn = document.createElement("button");
-      delBtn.className = "delbtn";
-      delBtn.style.flex = "1";
-      delBtn.textContent = "Delete";
-      delBtn.onclick = () => deleteWeeklyEntry(entry);
-      btnRow.appendChild(editBtn);
-      btnRow.appendChild(delBtn);
-      el.appendChild(btnRow);
-    }
-
-    main.appendChild(el);
+  groupIntoRounds(state.weekly.entries).forEach(round => {
+    main.appendChild(renderRoundCard(round));
   });
 
   const footer = document.createElement("div");
@@ -720,6 +721,80 @@ function renderWeekly(){
   main.appendChild(footer);
 
   return main;
+}
+
+function groupIntoRounds(entries){
+  const map = new Map();
+  entries.forEach(e => {
+    const key = `${e.teamId}::${e.captureSessionId || e.calibrationSessionId || e.id}`;
+    if(!map.has(key)) map.set(key, []);
+    map.get(key).push(e);
+  });
+  const rounds = [...map.values()];
+  rounds.forEach(r => r.sort((a,b) => String(a.timestamp).localeCompare(String(b.timestamp))));
+  rounds.sort((a,b) => String(b[b.length-1].timestamp).localeCompare(String(a[a.length-1].timestamp)));
+  return rounds;
+}
+
+function renderRoundCard(round){
+  const first = round[0];
+  const card = document.createElement("div");
+  card.className = "entry";
+
+  const time = new Date(first.timestamp).toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
+  const header = document.createElement("div");
+  header.innerHTML = `
+    <div class="entry-taxonomy"><span class="teampill">Team ${first.teamId}</span>${round.length} sign${round.length===1?"":"s"}</div>
+    <div class="entry-meta">${time} · ${first.protocol} · ${first.environment} · Kit ${first.objectKit} · Rt ${escapeHtml(first.route)}</div>
+    <div class="entry-meta">Cal ${escapeHtml(first.calibrationSessionId||"")} · Cap ${escapeHtml(first.captureSessionId||"")}</div>
+    ${first.sessionNotes ? `<div class="entry-note">Session: "${escapeHtml(first.sessionNotes)}"</div>` : ""}
+  `;
+  card.appendChild(header);
+
+  const signList = document.createElement("div");
+  signList.style.cssText = "margin-top:10px;border-top:1px solid var(--border);padding-top:10px;display:flex;flex-direction:column;gap:8px;";
+
+  round.forEach(entry => {
+    if(state.editingId === entry.id){
+      signList.appendChild(renderEditForm(entry));
+      return;
+    }
+
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;justify-content:space-between;align-items:flex-start;gap:8px;";
+
+    const editedTag = entry.editedAt ? ` · edited ${new Date(entry.editedAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}` : "";
+    const left = document.createElement("div");
+    left.innerHTML = `
+      <div style="font-size:13.5px;font-weight:600;">${SIGN_EMOJI[entry.signType]||""} ${escapeHtml(entry.signType)}</div>
+      ${entry.note ? `<div class="entry-note">"${escapeHtml(entry.note)}"</div>` : ""}
+      <div class="entry-meta" style="margin-top:2px;">${new Date(entry.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}${editedTag}</div>
+    `;
+    row.appendChild(left);
+
+    if(entry.teamId === state.teamId){
+      const btnRow = document.createElement("div");
+      btnRow.style.cssText = "display:flex;gap:6px;flex-shrink:0;";
+      const editBtn = document.createElement("button");
+      editBtn.className = "backbtn";
+      editBtn.style.cssText = "margin-bottom:0;padding:6px 10px;font-size:12px;";
+      editBtn.textContent = "Edit";
+      editBtn.onclick = () => startEdit(entry);
+      const delBtn = document.createElement("button");
+      delBtn.className = "delbtn";
+      delBtn.style.cssText = "padding:6px 10px;font-size:12px;";
+      delBtn.textContent = "Delete";
+      delBtn.onclick = () => deleteWeeklyEntry(entry);
+      btnRow.appendChild(editBtn);
+      btnRow.appendChild(delBtn);
+      row.appendChild(btnRow);
+    }
+
+    signList.appendChild(row);
+  });
+
+  card.appendChild(signList);
+  return card;
 }
 
 function renderEditForm(entry){
