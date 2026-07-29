@@ -6,76 +6,113 @@
 <title>Taxonomy Logger — Admin</title>
 <style>
   :root{
-    --bg:#eef0f3; --surface:#ffffff; --border:#dcdfe4;
-    --text:#1b2430; --muted:#67707c; --accent:#0f2647; --accent2:#a8813c;
-    --danger:#b3392f; --good:#1f6f4d;
-    --shadow-sm:0 1px 2px rgba(15,38,71,.05);
+    --paper:#f5f5f7;
+    --paper-line: rgba(0,0,0,0.05);
+    --ink:#1d1d1f;
+    --ink-soft:#6e6e73;
+    --teal:#5e5ce6;
+    --teal-dark:#4a48c4;
+    --teal-bg: rgba(94,92,230,0.1);
+    --amber:#ff9500;
+    --amber-bg: rgba(255,149,0,0.12);
+    --red:#ff3b30;
+    --red-bg: rgba(255,59,48,0.12);
+    --card:#ffffff;
+    --border: rgba(0,0,0,0.09);
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.04), 0 1px 6px rgba(0,0,0,0.05);
+    --shadow-md: 0 4px 16px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.06);
+    --shadow-lg: 0 16px 48px rgba(0,0,0,0.16), 0 2px 8px rgba(0,0,0,0.08);
+    --r-sm:10px; --r-md:14px; --r-lg:20px; --r-pill:999px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --paper:#000000;
+      --paper-line: rgba(255,255,255,0.07);
+      --ink:#f5f5f7;
+      --ink-soft:#98989d;
+      --teal:#7d7aff;
+      --teal-dark:#a5a3ff;
+      --teal-bg: rgba(125,122,255,0.18);
+      --amber:#ff9f0a;
+      --amber-bg: rgba(255,159,10,0.16);
+      --red:#ff453a;
+      --red-bg: rgba(255,69,58,0.16);
+      --card:#1c1c1e;
+      --border: rgba(255,255,255,0.12);
+      --shadow-sm: 0 0 0 1px rgba(255,255,255,0.06);
+      --shadow-md: 0 0 0 1px rgba(255,255,255,0.06), 0 8px 24px rgba(0,0,0,0.5);
+      --shadow-lg: 0 0 0 1px rgba(255,255,255,0.08), 0 20px 60px rgba(0,0,0,0.6);
+    }
   }
   *{box-sizing:border-box;}
-  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);min-height:100%;
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;-webkit-font-smoothing:antialiased;}
+  html,body{margin:0;padding:0;background:var(--paper);color:var(--ink);min-height:100%;
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;}
+  .mono{ font-variant-numeric:tabular-nums; }
 
-  header{padding:18px 28px;background:var(--accent);display:flex;align-items:center;gap:12px;}
-  header .brandmark{width:8px;height:8px;border-radius:2px;background:var(--accent2);transform:rotate(45deg);flex-shrink:0;}
-  header h1{font-size:15px;margin:0;letter-spacing:2px;font-weight:700;color:#fff;}
-  header .sub{font-size:12px;color:#cfe0ff;margin-left:6px;}
-  header .livepill{margin-left:auto;font-size:10.5px;font-weight:700;letter-spacing:.6px;color:#cfe0ff;display:flex;align-items:center;gap:6px;}
-  header .livedot{width:7px;height:7px;border-radius:50%;background:#3ddc84;box-shadow:0 0 0 3px rgba(61,220,132,.25);}
+  header{padding:20px 28px;display:flex;align-items:baseline;gap:10px;}
+  header h1{font-size:20px;margin:0;font-weight:700;letter-spacing:-0.02em;color:var(--ink);}
+  header .sub{font-size:12px;color:var(--teal);font-weight:600;letter-spacing:.02em;}
+  header .livepill{margin-left:auto;font-size:10.5px;font-weight:700;letter-spacing:.4px;color:var(--ink-soft);
+    display:flex;align-items:center;gap:6px;text-transform:uppercase;}
+  header .livedot{width:7px;height:7px;border-radius:50%;background:#34c759;box-shadow:0 0 0 3px rgba(52,199,89,.2);}
 
-  main{max-width:1200px;margin:0 auto;padding:24px 28px 60px;}
+  main{max-width:1200px;margin:0 auto;padding:8px 28px 60px;}
 
   /* Passcode gate */
-  .gate{max-width:360px;margin:80px auto;background:var(--surface);border:1px solid var(--border);border-radius:14px;
-    padding:28px;box-shadow:0 8px 30px rgba(15,38,71,.08);text-align:center;}
-  .gate h2{font-size:15px;margin:0 0 6px;color:var(--text);}
-  .gate p{font-size:13px;color:var(--muted);margin:0 0 18px;}
-  .gate input{width:100%;padding:12px;border:1px solid var(--border);border-radius:9px;font-size:16px;margin-bottom:12px;
-    box-shadow:var(--shadow-sm);text-align:center;letter-spacing:2px;}
-  .gate button{width:100%;padding:13px;border:none;border-radius:10px;background:var(--accent);color:#fff;
-    font-weight:700;font-size:14px;}
-  .gate .err{color:var(--danger);font-size:12.5px;margin-top:10px;min-height:16px;}
+  .gate{max-width:360px;margin:80px auto;background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);
+    padding:28px;box-shadow:var(--shadow-md);text-align:center;}
+  .gate h2{font-size:16px;margin:0 0 6px;color:var(--ink);font-weight:700;letter-spacing:-0.01em;}
+  .gate p{font-size:13px;color:var(--ink-soft);margin:0 0 18px;}
+  .gate input{width:100%;padding:12px;border:1px solid var(--border);border-radius:var(--r-sm);font-size:16px;margin-bottom:12px;
+    text-align:center;letter-spacing:2px;background:var(--card);color:var(--ink);}
+  .gate input:focus{outline:none;border-color:var(--teal);box-shadow:0 0 0 4px var(--teal-bg);}
+  .gate button{width:100%;padding:13px;border:none;border-radius:var(--r-sm);background:var(--teal);color:#fff;
+    font-weight:600;font-size:14px;}
+  .gate .err{color:var(--red);font-size:12.5px;margin-top:10px;min-height:16px;}
 
   .topbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:20px;}
-  .weeknav{display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--border);border-radius:10px;
+  .weeknav{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--border);border-radius:var(--r-sm);
     padding:8px 14px;box-shadow:var(--shadow-sm);}
-  .weeknav button{background:transparent;border:none;color:var(--accent);font-weight:700;font-size:14px;padding:2px 6px;}
-  .weeknav .weeklabel{font-size:13.5px;font-weight:700;min-width:110px;text-align:center;}
-  .refreshbtn{background:var(--surface);border:1px solid var(--border);color:var(--accent);border-radius:9px;
-    padding:9px 14px;font-size:12.5px;font-weight:700;box-shadow:var(--shadow-sm);}
-  .updated{font-size:12px;color:var(--muted);}
-  .exportbtn{margin-left:auto;background:var(--accent2);color:#fff;border:none;border-radius:9px;padding:10px 18px;
-    font-weight:700;font-size:13px;box-shadow:0 6px 16px rgba(168,129,60,.25);}
+  .weeknav button{background:transparent;border:none;color:var(--teal);font-weight:700;font-size:14px;padding:2px 6px;}
+  .weeknav .weeklabel{font-size:13.5px;font-weight:700;min-width:110px;text-align:center;color:var(--ink);}
+  .refreshbtn{background:var(--card);border:1px solid var(--border);color:var(--teal);border-radius:var(--r-pill);
+    padding:9px 16px;font-size:12.5px;font-weight:600;box-shadow:var(--shadow-sm);}
+  .updated{font-size:12px;color:var(--ink-soft);}
+  .exportbtn{margin-left:auto;background:var(--teal);color:#fff;border:none;border-radius:var(--r-sm);padding:11px 18px;
+    font-weight:600;font-size:13px;box-shadow:var(--shadow-sm);}
 
   .statgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:24px;}
-  .statcard{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;box-shadow:var(--shadow-sm);}
-  .statcard .num{font-size:26px;font-weight:800;color:var(--accent);font-variant-numeric:tabular-nums;}
-  .statcard .lbl{font-size:11.5px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-top:4px;font-weight:700;}
+  .statcard{background:var(--card);border:1px solid var(--border);border-radius:var(--r-md);padding:16px;box-shadow:var(--shadow-sm);}
+  .statcard .num{font-size:26px;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums;letter-spacing:-0.02em;}
+  .statcard .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-soft);margin-top:4px;font-weight:700;}
 
   .daytabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px;}
-  .daytab{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:8px 16px;font-size:13px;
-    font-weight:600;color:var(--muted);box-shadow:var(--shadow-sm);}
-  .daytab.active{background:var(--accent);color:#fff;border-color:var(--accent);}
+  .daytab{background:var(--card);border:1px solid var(--border);border-radius:var(--r-pill);padding:9px 17px;font-size:12.5px;
+    font-weight:500;color:var(--ink-soft);transition:all .15s ease;}
+  .daytab:hover{border-color:var(--ink-soft);color:var(--ink);}
+  .daytab.active{background:var(--ink);color:var(--card);border-color:var(--ink);}
   .daytab .cnt{opacity:.75;margin-left:4px;}
 
-  table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:12px;
+  table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--border);border-radius:var(--r-md);
     overflow:hidden;box-shadow:var(--shadow-sm);}
-  thead th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);
-    padding:12px 14px;border-bottom:1px solid var(--border);background:#f7f8fa;white-space:nowrap;}
-  tbody td{padding:12px 14px;border-bottom:1px solid var(--border);font-size:13.5px;vertical-align:top;}
+  thead th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-soft);
+    padding:12px 14px;border-bottom:1px solid var(--border);font-weight:600;white-space:nowrap;}
+  tbody td{padding:13px 14px;border-bottom:1px solid var(--paper-line);font-size:13.5px;vertical-align:top;}
   tbody tr:last-child td{border-bottom:none;}
-  tbody tr:hover{background:#fafbfc;}
+  tbody tr:hover{background:var(--paper);}
   .tablewrap{overflow-x:auto;}
-  .teampill{display:inline-block;background:#eef2f8;color:var(--accent);border-radius:6px;padding:2px 8px;
+  .teampill{display:inline-block;background:var(--teal-bg);color:var(--teal-dark);border-radius:6px;padding:2px 8px;
     font-size:11px;font-weight:700;}
-  .note{font-size:12px;color:var(--muted);font-style:italic;margin-top:2px;}
-  .rowbtn{background:transparent;border:1px solid var(--border);border-radius:7px;padding:5px 10px;font-size:11.5px;
-    font-weight:700;margin-right:6px;cursor:pointer;}
-  .rowbtn.edit{color:var(--accent);}
-  .rowbtn.del{color:var(--danger);}
-  .empty{text-align:center;padding:60px 20px;color:var(--muted);font-size:14px;}
+  .note{font-size:12px;color:var(--ink-soft);margin-top:2px;}
+  .rowbtn{background:transparent;border:1px solid var(--border);border-radius:var(--r-sm);padding:6px 11px;font-size:11.5px;
+    font-weight:600;margin-right:6px;cursor:pointer;}
+  .rowbtn.edit{color:var(--teal);}
+  .rowbtn.del{color:var(--red);}
+  .empty{text-align:center;padding:60px 20px;color:var(--ink-soft);font-size:14px;}
 
-  .editrow textarea, .editrow input, .editrow select{width:100%;padding:6px 8px;border:1px solid var(--border);
-    border-radius:6px;font-size:12.5px;font-family:inherit;}
+  .editrow textarea, .editrow input, .editrow select{width:100%;padding:7px 9px;border:1px solid var(--border);
+    border-radius:var(--r-sm);font-size:12.5px;font-family:inherit;background:var(--card);color:var(--ink);}
   .editrow textarea{min-height:40px;resize:vertical;}
 </style>
 </head>
@@ -135,7 +172,7 @@ function render(){
 function renderGate(){
   const wrap = document.createElement("div");
   wrap.innerHTML = `
-    <header><span class="brandmark"></span><h1>TAXONOMY LOGGER</h1><span class="sub">Admin</span></header>
+    <header><h1>Taxonomy Logger</h1><span class="sub">Admin</span></header>
     <div class="gate">
       <h2>Team Lead Access</h2>
       <p>Enter the shared admin passcode to view the live weekly document.</p>
@@ -180,8 +217,8 @@ function renderDashboard(){
   const wrap = document.createElement("div");
 
   const header = document.createElement("header");
-  header.innerHTML = `<span class="brandmark"></span><h1>TAXONOMY LOGGER</h1><span class="sub">Admin</span>
-    <span class="livepill"><span class="livedot"></span>LIVE</span>`;
+  header.innerHTML = `<h1>Taxonomy Logger</h1><span class="sub">Admin</span>
+    <span class="livepill"><span class="livedot"></span>Live</span>`;
   wrap.appendChild(header);
 
   const main = document.createElement("main");
