@@ -71,7 +71,8 @@
   .ctxbar{font-size:12.5px;color:var(--ink-soft);padding:10px 20px;border-bottom:1px solid var(--paper-line);
     display:flex;flex-wrap:wrap;gap:5px 14px;align-items:center;}
   .ctxbar b{color:var(--ink);font-weight:600;}
-  .ctxbar button{margin-left:auto;background:transparent;border:1px solid var(--border);color:var(--teal);
+  .ctxbar .ctxbtns{margin-left:auto;display:flex;gap:8px;}
+  .ctxbar .ctxbtns .changebtn{background:transparent;border:1px solid var(--border);color:var(--teal);
     border-radius:var(--r-pill);padding:6px 14px;font-size:12px;font-weight:600;}
 
   nav.tabs{display:flex;border-bottom:1px solid var(--paper-line);padding:0 20px;gap:4px;}
@@ -141,6 +142,17 @@
 
   .teampill{display:inline-block;background:var(--teal-bg);color:var(--teal-dark);border-radius:6px;padding:2px 7px;
     font-size:11px;font-weight:700;margin-right:6px;}
+
+  .qty-row{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+  .qty-stepper{display:flex;align-items:center;gap:8px;flex-shrink:0;}
+  .qty-btn{width:30px;height:30px;padding:0;border:1px solid var(--border);background:var(--card);border-radius:50%;
+    font-size:16px;line-height:1;display:flex;align-items:center;justify-content:center;color:var(--ink);
+    transition:all .15s ease;}
+  .qty-btn:hover{border-color:var(--teal);color:var(--teal);background:var(--teal-bg);}
+  .qty-count{min-width:20px;text-align:center;font-size:14px;font-weight:700;font-variant-numeric:tabular-nums;}
+
+  .navtoggle{background:var(--teal);color:#fff;border:none;border-radius:var(--r-pill);
+    padding:6px 14px;font-size:12px;font-weight:600;margin-left:auto;}
 </style>
 </head>
 <body>
@@ -276,14 +288,31 @@ function renderCtxBar(){
     <span>Kit <b>${state.objectKit}</b></span>
     <span>Rt <b>${escapeHtml(state.route)}</b></span>
   `;
-  const btn = document.createElement("button");
-  btn.textContent = "Change";
-  btn.onclick = () => {
+  const btns = document.createElement("div");
+  btns.className = "ctxbtns";
+
+  const navBtn = document.createElement("button");
+  navBtn.className = "navtoggle";
+  if(state.tab === "log"){
+    navBtn.textContent = "Edit →";
+    navBtn.onclick = () => { state.tab = "weekly"; render(); fetchWeekly(); startPolling(); };
+  } else {
+    navBtn.textContent = "← Home";
+    navBtn.onclick = () => { state.tab = "log"; stopPolling(); render(); };
+  }
+  btns.appendChild(navBtn);
+
+  const changeBtn = document.createElement("button");
+  changeBtn.className = "changebtn";
+  changeBtn.textContent = "Change";
+  changeBtn.onclick = () => {
     state.protocol=null; state.environment=null; state.objectKit=null;
     state.route="";
     render();
   };
-  bar.appendChild(btn);
+  btns.appendChild(changeBtn);
+
+  bar.appendChild(btns);
   return bar;
 }
 
@@ -469,44 +498,59 @@ function renderFinishReview(){
   return main;
 }
 
+function groupCartBySign(cart){
+  const map = new Map();
+  cart.forEach(item => {
+    if(!map.has(item.signType)) map.set(item.signType, []);
+    map.get(item.signType).push(item);
+  });
+  const groups = [...map.entries()].map(([signType, items]) => ({ signType, items }));
+  groups.sort((a, b) => {
+    const aLast = a.items[a.items.length - 1].timestamp;
+    const bLast = b.items[b.items.length - 1].timestamp;
+    return String(bLast).localeCompare(String(aLast));
+  });
+  return groups;
+}
+
+function renderQtyGroup(group){
+  const el = document.createElement("div");
+  el.className = "entry";
+
+  const notes = group.items.filter(i => i.note).map(i => i.note);
+  el.innerHTML = `
+    <div class="qty-row">
+      <div>
+        <div class="entry-taxonomy">${SIGN_EMOJI[group.signType]||""} ${escapeHtml(group.signType)}</div>
+        ${notes.map(n => `<div class="entry-note">"${escapeHtml(n)}"</div>`).join("")}
+      </div>
+    </div>
+  `;
+
+  const stepper = document.createElement("div");
+  stepper.className = "qty-stepper";
+  const minus = document.createElement("button");
+  minus.className = "qty-btn";
+  minus.textContent = "–";
+  minus.onclick = () => decrementCartSign(group.signType);
+  const count = document.createElement("span");
+  count.className = "qty-count";
+  count.textContent = group.items.length;
+  const plus = document.createElement("button");
+  plus.className = "qty-btn";
+  plus.textContent = "+";
+  plus.onclick = () => incrementCartSign(group.signType);
+  stepper.appendChild(minus);
+  stepper.appendChild(count);
+  stepper.appendChild(plus);
+  el.querySelector(".qty-row").appendChild(stepper);
+
+  return el;
+}
+
 function renderReviewList(){
   const section = document.createElement("div");
-
-  state.cart.slice().reverse().forEach(item => {
-    const el = document.createElement("div");
-    el.className = "entry";
-
-    const select = document.createElement("select");
-    SIGN_TYPES.forEach(s => {
-      const opt = document.createElement("option");
-      opt.value = s; opt.textContent = `${SIGN_EMOJI[s]} ${s}`;
-      if(s === item.signType) opt.selected = true;
-      select.appendChild(opt);
-    });
-    select.onchange = (e) => { item.signType = e.target.value; };
-    select.style.marginBottom = "8px";
-    el.appendChild(select);
-
-    const noteInput = document.createElement("textarea");
-    noteInput.placeholder = "Note (optional)";
-    noteInput.value = item.note;
-    noteInput.oninput = (e) => { item.note = e.target.value; };
-    el.appendChild(noteInput);
-
-    const delBtn = document.createElement("button");
-    delBtn.className = "delbtn";
-    delBtn.style.marginTop = "8px";
-    delBtn.textContent = "Remove from round";
-    delBtn.onclick = () => {
-      state.cart = state.cart.filter(c => c.id !== item.id);
-      if(state.cart.length === 0) state.reviewingFinish = false;
-      render();
-    };
-    el.appendChild(delBtn);
-
-    section.appendChild(el);
-  });
-
+  groupCartBySign(state.cart).forEach(group => section.appendChild(renderQtyGroup(group)));
   return section;
 }
 
@@ -515,30 +559,7 @@ function renderCart(){
   if(state.cart.length === 0) return section;
 
   section.appendChild(rowTitle(`In This Round (${state.cart.length})`));
-
-  state.cart.slice().reverse().forEach(item => {
-    const el = document.createElement("div");
-    el.className = "entry";
-    const time = new Date(item.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
-    el.innerHTML = `
-      <div class="entry-top">
-        <div>
-          <div class="entry-taxonomy">${item.signType}</div>
-          <div class="entry-meta">${time}</div>
-          ${item.note ? `<div class="entry-note">"${escapeHtml(item.note)}"</div>` : ""}
-        </div>
-      </div>
-    `;
-    const delBtn = document.createElement("button");
-    delBtn.className = "delbtn";
-    delBtn.textContent = "Remove";
-    delBtn.onclick = () => {
-      state.cart = state.cart.filter(c => c.id !== item.id);
-      render();
-    };
-    el.querySelector(".entry-top").appendChild(delBtn);
-    section.appendChild(el);
-  });
+  groupCartBySign(state.cart).forEach(group => section.appendChild(renderQtyGroup(group)));
 
   return section;
 }
@@ -559,6 +580,34 @@ function addToCart(signType){
   state.cart.push(item);
   state.note = "";
   showToast("Added: " + signType + " (" + state.cart.length + " in round)");
+  render();
+}
+
+function incrementCartSign(signType){
+  const item = {
+    id: Date.now() + "-" + Math.random().toString(36).slice(2,7),
+    date: state.date,
+    timestamp: new Date().toISOString(),
+    teamId: state.teamId,
+    protocol: state.protocol,
+    environment: state.environment,
+    objectKit: state.objectKit,
+    route: state.route,
+    signType: signType,
+    note: ""
+  };
+  state.cart.push(item);
+  render();
+}
+
+function decrementCartSign(signType){
+  for(let i = state.cart.length - 1; i >= 0; i--){
+    if(state.cart[i].signType === signType){
+      state.cart.splice(i, 1);
+      break;
+    }
+  }
+  if(state.cart.length === 0) state.reviewingFinish = false;
   render();
 }
 
