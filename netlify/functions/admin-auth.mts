@@ -7,13 +7,13 @@ export default async (req: Request, context: Context) => {
   const { passcode, studyId } = await req.json();
 
   let expected: string | null | undefined;
-  if (studyId && studyId !== "default") {
+  if (studyId === "__studio__") {
+    expected = Netlify.env.get("STUDIO_PASSCODE");
+  } else if (studyId && studyId !== "default") {
     const store = getStore({ name: "studies", consistency: "strong" });
     const study = await store.get(studyId, { type: "json" }) as any;
     if (!study) return Response.json({ ok: false, error: "Study not found" }, { status: 404 });
     expected = study.passcode;
-  } else if (studyId === "__studio__") {
-    expected = Netlify.env.get("STUDIO_PASSCODE");
   } else {
     expected = Netlify.env.get("ADMIN_PASSCODE");
   }
