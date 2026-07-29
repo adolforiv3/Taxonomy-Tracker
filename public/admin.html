@@ -3,13 +3,22 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Taxonomy Logger — Edit Runs</title>
+<title>Taxonomy Logger — Admin</title>
 <style>
   :root{
-    --paper:#f5f5f7; --paper-line: rgba(0,0,0,0.05); --ink:#1d1d1f; --ink-soft:#6e6e73;
-    --teal:#5e5ce6; --teal-dark:#4a48c4; --teal-bg: rgba(94,92,230,0.1);
-    --red:#ff3b30; --red-bg: rgba(255,59,48,0.12);
-    --card:#ffffff; --border: rgba(0,0,0,0.09);
+    --paper:#f5f5f7;
+    --paper-line: rgba(0,0,0,0.05);
+    --ink:#1d1d1f;
+    --ink-soft:#6e6e73;
+    --teal:#5e5ce6;
+    --teal-dark:#4a48c4;
+    --teal-bg: rgba(94,92,230,0.1);
+    --amber:#ff9500;
+    --amber-bg: rgba(255,149,0,0.12);
+    --red:#ff3b30;
+    --red-bg: rgba(255,59,48,0.12);
+    --card:#ffffff;
+    --border: rgba(0,0,0,0.09);
     --shadow-sm: 0 1px 2px rgba(0,0,0,0.04), 0 1px 6px rgba(0,0,0,0.05);
     --shadow-md: 0 4px 16px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.06);
     --shadow-lg: 0 16px 48px rgba(0,0,0,0.16), 0 2px 8px rgba(0,0,0,0.08);
@@ -17,10 +26,19 @@
   }
   @media (prefers-color-scheme: dark){
     :root{
-      --paper:#000000; --paper-line: rgba(255,255,255,0.07); --ink:#f5f5f7; --ink-soft:#98989d;
-      --teal:#7d7aff; --teal-dark:#a5a3ff; --teal-bg: rgba(125,122,255,0.18);
-      --red:#ff453a; --red-bg: rgba(255,69,58,0.16);
-      --card:#1c1c1e; --border: rgba(255,255,255,0.12);
+      --paper:#000000;
+      --paper-line: rgba(255,255,255,0.07);
+      --ink:#f5f5f7;
+      --ink-soft:#98989d;
+      --teal:#7d7aff;
+      --teal-dark:#a5a3ff;
+      --teal-bg: rgba(125,122,255,0.18);
+      --amber:#ff9f0a;
+      --amber-bg: rgba(255,159,10,0.16);
+      --red:#ff453a;
+      --red-bg: rgba(255,69,58,0.16);
+      --card:#1c1c1e;
+      --border: rgba(255,255,255,0.12);
       --shadow-sm: 0 0 0 1px rgba(255,255,255,0.06);
       --shadow-md: 0 0 0 1px rgba(255,255,255,0.06), 0 8px 24px rgba(0,0,0,0.5);
       --shadow-lg: 0 0 0 1px rgba(255,255,255,0.08), 0 20px 60px rgba(0,0,0,0.6);
@@ -32,58 +50,88 @@
   html,body{margin:0;padding:0;background:var(--paper);color:var(--ink);min-height:100%;
     font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Segoe UI",Roboto,Helvetica,Arial,sans-serif;
     -webkit-font-smoothing:antialiased;}
+  .mono{ font-variant-numeric:tabular-nums; }
 
-  header{padding:20px 28px;display:flex;align-items:baseline;gap:10px;justify-content:space-between;}
-  header h1{font-size:20px;margin:0;font-weight:700;letter-spacing:-0.02em;}
+  header{padding:20px 28px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;}
+  header h1{font-size:20px;margin:0;font-weight:700;letter-spacing:-0.02em;color:var(--ink);}
   header .sub{font-size:12px;color:var(--teal);font-weight:600;letter-spacing:.02em;}
-  header .userinfo{font-size:12px;color:var(--ink-soft);display:flex;gap:12px;align-items:center;}
+  header .livepill{font-size:10.5px;font-weight:700;letter-spacing:.4px;color:var(--ink-soft);
+    display:flex;align-items:center;gap:6px;text-transform:uppercase;}
+  header .livedot{width:7px;height:7px;border-radius:50%;background:#34c759;box-shadow:0 0 0 3px rgba(52,199,89,.2);}
+  header .userinfo{margin-left:auto;font-size:12px;color:var(--ink-soft);display:flex;gap:12px;align-items:center;}
   header .userinfo button{background:transparent;border:none;color:var(--teal);font-size:12px;font-weight:600;padding:0;margin:0;}
 
-  main{max-width:900px;margin:0 auto;padding:8px 28px 60px;}
+  main{max-width:1200px;margin:0 auto;padding:8px 28px 60px;}
 
-  .authbox{max-width:360px;margin:80px auto;background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);
+  .loadingwrap{max-width:600px;margin:100px auto;text-align:center;color:var(--ink-soft);font-size:14px;}
+
+  /* Auth gate */
+  .gate{max-width:360px;margin:80px auto;background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);
     padding:28px;box-shadow:var(--shadow-md);}
-  .authbox h2{font-size:16px;margin:0 0 6px;font-weight:700;letter-spacing:-0.01em;}
-  .authbox p{font-size:13px;color:var(--ink-soft);margin:0 0 18px;}
-  .authbox input{width:100%;padding:12px;border:1px solid var(--border);border-radius:var(--r-sm);font-size:16px;margin-bottom:12px;
+  .gate h2{font-size:16px;margin:0 0 6px;color:var(--ink);font-weight:700;letter-spacing:-0.01em;}
+  .gate p{font-size:13px;color:var(--ink-soft);margin:0 0 18px;}
+  .gate input{width:100%;padding:12px;border:1px solid var(--border);border-radius:var(--r-sm);font-size:16px;margin-bottom:12px;
     background:var(--card);color:var(--ink);}
-  .authbox input:focus{outline:none;border-color:var(--teal);box-shadow:0 0 0 4px var(--teal-bg);}
-  .authbox button{width:100%;padding:13px;border:none;border-radius:var(--r-sm);background:var(--teal);color:#fff;
-    font-weight:600;font-size:14px;margin-bottom:8px;}
-  .authbox .toggle{text-align:center;font-size:12.5px;color:var(--ink-soft);}
-  .authbox .toggle button{width:auto;background:none;color:var(--teal);padding:0;margin:0;text-decoration:underline;}
-  .authbox .err{color:var(--red);font-size:12.5px;margin-top:10px;min-height:16px;}
+  .gate input:focus{outline:none;border-color:var(--teal);box-shadow:0 0 0 4px var(--teal-bg);}
+  .gate button.primary{width:100%;padding:13px;border:none;border-radius:var(--r-sm);background:var(--teal);color:#fff;
+    font-weight:600;font-size:14px;}
+  .gate .err{color:var(--red);font-size:12.5px;margin-top:10px;min-height:16px;}
+  .gate .toggle{text-align:center;font-size:12.5px;color:var(--ink-soft);margin-top:12px;}
+  .gate .toggle button{width:auto;background:none;color:var(--teal);padding:0;margin:0;text-decoration:underline;font-weight:600;}
 
-  .entry{background:var(--card);border:1px solid var(--border);border-radius:var(--r-md);padding:14px 16px;margin-bottom:10px;}
-  .entry-header{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:10px;}
-  .entry-info{font-size:14px;font-weight:600;color:var(--ink);}
-  .entry-meta{font-size:12px;color:var(--ink-soft);margin-top:4px;}
-  .entry-actions{display:flex;gap:6px;}
-  .entry-actions button{background:transparent;border:1px solid var(--border);color:var(--teal);border-radius:var(--r-sm);
-    padding:6px 12px;font-size:12px;font-weight:600;}
-  .entry-actions button.del{color:var(--red);}
-  @media (hover:hover){ .entry-actions button.del:hover{ background:var(--red-bg); border-color:var(--red); } }
+  .topbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:20px;}
+  .weeknav{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--border);border-radius:var(--r-sm);
+    padding:8px 14px;box-shadow:var(--shadow-sm);}
+  .weeknav button{background:transparent;border:none;color:var(--teal);font-weight:700;font-size:14px;padding:2px 6px;}
+  .weeknav .weeklabel{font-size:13.5px;font-weight:700;min-width:110px;text-align:center;color:var(--ink);}
+  .refreshbtn{background:var(--card);border:1px solid var(--border);color:var(--teal);border-radius:var(--r-pill);
+    padding:9px 16px;font-size:12.5px;font-weight:600;box-shadow:var(--shadow-sm);}
+  .updated{font-size:12px;color:var(--ink-soft);}
+  .exportbtn{margin-left:auto;background:var(--teal);color:#fff;border:none;border-radius:var(--r-sm);padding:11px 18px;
+    font-weight:600;font-size:13px;box-shadow:var(--shadow-sm);}
 
-  .empty{color:var(--ink-soft);text-align:center;padding:40px 20px;font-size:14px;}
+  .statgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:24px;}
+  .statcard{background:var(--card);border:1px solid var(--border);border-radius:var(--r-md);padding:16px;box-shadow:var(--shadow-sm);}
+  .statcard .num{font-size:26px;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums;letter-spacing:-0.02em;}
+  .statcard .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-soft);margin-top:4px;font-weight:700;}
 
-  .card{background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);padding:22px;margin-bottom:20px;}
-  .card h2{font-size:16px;margin:0 0 16px;font-weight:700;}
+  .daytabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px;}
+  .daytab{background:var(--card);border:1px solid var(--border);border-radius:var(--r-pill);padding:9px 17px;font-size:12.5px;
+    font-weight:500;color:var(--ink-soft);transition:all .15s ease;}
+  .daytab:hover{border-color:var(--ink-soft);color:var(--ink);}
+  .daytab.active{background:var(--ink);color:var(--card);border-color:var(--ink);}
+  .daytab .cnt{opacity:.75;margin-left:4px;}
 
-  .field{margin-bottom:16px;}
-  .field label{display:block;font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);
-    font-weight:700;margin-bottom:6px;}
-  .field input, .field textarea{width:100%;padding:11px 13px;border:1px solid var(--border);border-radius:var(--r-sm);
-    font-size:15px;font-family:inherit;background:var(--paper);color:var(--ink);}
-  .field input:focus{outline:none;border-color:var(--teal);box-shadow:0 0 0 4px var(--teal-bg);}
+  .teampill{display:inline-block;background:var(--teal-bg);color:var(--teal-dark);border-radius:6px;padding:2px 8px;
+    font-size:11px;font-weight:700;}
+  .countbadge{display:inline-block;background:var(--paper-line);color:var(--ink-soft);border-radius:6px;padding:1px 7px;
+    font-size:11px;font-weight:700;margin-left:6px;font-variant-numeric:tabular-nums;}
+  .rowbtn{background:transparent;border:1px solid var(--border);border-radius:var(--r-sm);padding:6px 11px;font-size:11.5px;
+    font-weight:600;margin-right:6px;cursor:pointer;}
+  .rowbtn.edit{color:var(--teal);}
+  .rowbtn.del{color:var(--red);}
+  .empty{text-align:center;padding:60px 20px;color:var(--ink-soft);font-size:14px;}
 
-  .savebtn{width:100%;padding:13px;border:none;border-radius:var(--r-sm);background:var(--teal);color:#fff;
-    font-weight:600;font-size:14px;margin-top:8px;}
-  .savebtn:disabled{background:var(--border);color:var(--ink-soft);}
+  .editrow input, .editrow select{width:100%;padding:7px 9px;border:1px solid var(--border);
+    border-radius:var(--r-sm);font-size:12.5px;font-family:inherit;background:var(--card);color:var(--ink);}
 
-  .header-tabs{display:flex;gap:8px;border-bottom:1px solid var(--paper-line);padding:0 0 16px 0;margin-bottom:20px;}
-  .header-tabs button{background:none;border:none;color:var(--ink-soft);font-size:14px;font-weight:600;padding:4px 0;
-    border-bottom:2px solid transparent;}
-  .header-tabs button.active{color:var(--ink);border-bottom-color:var(--teal);}
+  .accordion{display:flex;flex-direction:column;gap:10px;}
+  .team-group{background:var(--card);border:1px solid var(--border);border-radius:var(--r-md);box-shadow:var(--shadow-sm);overflow:hidden;}
+  .team-header{width:100%;display:flex;align-items:center;gap:12px;padding:16px 18px;background:transparent;border:none;
+    cursor:pointer;text-align:left;font-family:inherit;}
+  .team-header:hover{background:var(--paper);}
+  .team-header .chevron{font-size:13px;color:var(--ink-soft);transition:transform .15s ease;flex-shrink:0;}
+  .team-header .chevron.open{transform:rotate(90deg);}
+  .team-header .teampill{font-size:12.5px;padding:4px 10px;}
+  .team-header .summary{color:var(--ink-soft);font-size:13px;}
+  .team-body{border-top:1px solid var(--border);}
+  .round-block{padding:12px 18px;border-bottom:1px solid var(--paper-line);}
+  .round-block:last-child{border-bottom:none;}
+  .round-meta{font-size:12px;color:var(--ink-soft);margin-bottom:8px;}
+  .round-meta b{color:var(--ink);font-weight:600;}
+  .sign-row{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:7px 0;}
+  .sign-row + .sign-row{border-top:1px solid var(--paper-line);}
+  .sign-row .sign-name{font-size:13.5px;font-weight:600;}
 </style>
 </head>
 <body>
@@ -91,51 +139,94 @@
 
 <script>
 const STUDY_MATCH = window.location.pathname.match(/^\/s\/([^\/]+)/);
-const STUDY_ID = STUDY_MATCH ? STUDY_MATCH[1] : null;
+const STUDY_ID = STUDY_MATCH ? STUDY_MATCH[1] : "default";
 
-let state = {
-  mode: "login", // "login", "teamSelect", "teamView", "adminView"
-  user: null,
-  token: sessionStorage.getItem("tl_admin_token"),
-  teamId: null,
-  entries: [],
-  editingId: null,
-  editDraft: null,
-  loading: false,
-  saving: false,
-  loginErr: "",
-  week: isoWeek(new Date().toISOString().slice(0, 10))
+let SIGN_EMOJI = {
+  "Construction Sign": "🚧", "Crosswalk": "🦓", "Cycling": "🚴", "Do Not Enter": "⛔",
+  "End Restrictions": "🔚", "No Cycling": "🚳", "No Pedestrian Sign": "🚷", "One Way (left)": "⬅️",
+  "One Way (right)": "➡️", "Parking Area": "🅿️", "Pedestrian Crossing Sign": "🚸",
+  "Pedestrian Zone Ends Sign": "🏁", "Pedestrian Zone Sign": "🚶", "Railroad Crossing Sign": "🚆",
+  "School Zone": "🏫", "Stop Sign": "🛑", "Street Name Sign": "🪧", "Traffic Light": "🚦",
+  "Trailhead Sign": "🥾", "Turn Restrictions": "↩️"
 };
+let SIGN_TYPES = Object.keys(SIGN_EMOJI).sort((a,b) => a.localeCompare(b));
+let STUDY_NAME = "Taxonomy Logger";
 
-function isoWeek(dateStr) {
-  const d = new Date(`${dateStr}T00:00:00Z`);
+function isoWeek(dateStr){
+  const d = new Date(dateStr + "T00:00:00Z");
   const target = new Date(d.valueOf());
   const dayNr = (d.getUTCDay() + 6) % 7;
   target.setUTCDate(target.getUTCDate() - dayNr + 3);
   const firstThursday = target.valueOf();
   target.setUTCMonth(0, 1);
-  if (target.getUTCDay() !== 4) {
-    target.setUTCMonth(0, 1 + ((4 - target.getUTCDay() + 7) % 7));
-  }
-  const week = 1 + Math.ceil((firstThursday - target.valueOf()) / (7 * 24 * 3600 * 1000));
-  return `${d.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
+  if(target.getUTCDay() !== 4){ target.setUTCMonth(0, 1 + ((4 - target.getUTCDay() + 7) % 7)); }
+  const week = 1 + Math.ceil((firstThursday - target.valueOf()) / (7*24*3600*1000));
+  return `${d.getUTCFullYear()}-W${String(week).padStart(2,"0")}`;
 }
+function shiftWeek(week, delta){
+  const [y, w] = week.split("-W").map(Number);
+  const jan4 = new Date(Date.UTC(y,0,4));
+  const monday = new Date(jan4.valueOf() - ((jan4.getUTCDay()+6)%7)*86400000);
+  const target = new Date(monday.valueOf() + (w-1+delta)*7*86400000);
+  return isoWeek(target.toISOString().slice(0,10));
+}
+
+let state = {
+  studyLoaded: STUDY_ID === "default",
+  studyError: false,
+
+  // Access: either a field team (name only, no login) or an authenticated lab admin.
+  mode: "teamSelect", // "teamSelect" | "adminLogin"
+  teamId: null,
+  user: null,
+  token: sessionStorage.getItem("tl_admin_token"),
+  authErr: "",
+
+  week: isoWeek(new Date().toISOString().slice(0,10)),
+  entries: [],
+  loading: false,
+  lastUpdated: null,
+  dayFilter: "all",
+  editingId: null,
+  editDraft: null,
+  editingRunKey: null,
+  editRunDraft: null,
+  expandedTeams: new Set()
+};
+let pollTimer = null;
 
 const app = document.getElementById("app");
 
-async function init() {
-  if (state.token) {
+function isAdmin(){ return !!state.user; }
+
+async function loadStudy(){
+  try {
+    const res = await fetch(`/api/studies?id=${encodeURIComponent(STUDY_ID)}`);
+    if(!res.ok) throw new Error("not found");
+    const data = await res.json();
+    const s = data.study;
+    STUDY_NAME = s.name;
+    SIGN_EMOJI = {};
+    s.signTypes.forEach(t => { SIGN_EMOJI[t.name] = t.emoji; });
+    SIGN_TYPES = Object.keys(SIGN_EMOJI).sort((a,b) => a.localeCompare(b));
+    state.studyLoaded = true;
+  } catch (err) {
+    state.studyError = true;
+  }
+  render();
+}
+
+async function restoreSession(){
+  if(state.token){
     try {
       const res = await fetch("/api/users", {
         method: "POST",
         headers: { "content-type": "application/json", "x-user-token": state.token },
         body: JSON.stringify({ action: "whoami" })
       });
-      if (res.ok) {
+      if(res.ok){
         const data = await res.json();
         state.user = data.user;
-        state.mode = "adminView";
-        fetchEntries();
       } else {
         state.token = null;
         sessionStorage.removeItem("tl_admin_token");
@@ -145,59 +236,71 @@ async function init() {
       sessionStorage.removeItem("tl_admin_token");
     }
   }
-  render();
 }
 
-function render() {
+function render(){
   app.innerHTML = "";
-  if (state.user) {
-    app.appendChild(renderAdminView());
-  } else {
-    app.appendChild(renderAuthGate());
+  if(state.studyError){
+    app.innerHTML = `<header><h1>Taxonomy Logger</h1><span class="sub">Admin</span></header>
+      <div class="loadingwrap">This study link isn't valid, or the study may have been removed.<br><br>Check the link with your DRI / Lab Admin.</div>`;
+    return;
   }
+  if(!state.studyLoaded){
+    app.innerHTML = `<header><h1>Taxonomy Logger</h1><span class="sub">Admin</span></header>
+      <div class="loadingwrap">Loading study…</div>`;
+    return;
+  }
+  app.appendChild((state.user || state.teamId) ? renderDashboard() : renderGate());
 }
 
-function renderAuthGate() {
+function renderGate(){
   const wrap = document.createElement("div");
-  wrap.innerHTML = `<header><h1>Taxonomy Logger</h1><span class="sub">Edit Runs</span></header>`;
+  wrap.innerHTML = `<header><h1>Taxonomy Logger</h1><span class="sub">Admin</span></header>`;
 
   const main = document.createElement("main");
   const box = document.createElement("div");
-  box.className = "authbox";
+  box.className = "gate";
 
-  if (state.mode === "teamSelect") {
+  if(state.mode === "adminLogin"){
+    box.innerHTML = `
+      <h2>Lab Admin Login</h2>
+      <p>Log in with your credentials.</p>
+      <input id="emailInput" type="email" placeholder="Email" autocomplete="email" />
+      <input id="pwInput" type="password" placeholder="Password" autocomplete="current-password" />
+      <button class="primary" id="loginBtn">Log In</button>
+      <div class="toggle"><button id="backBtn">Back</button></div>
+      <div class="err">${state.authErr}</div>
+    `;
+    box.querySelector("#loginBtn").onclick = tryLogin;
+    box.querySelector("#backBtn").onclick = () => { state.mode = "teamSelect"; state.authErr = ""; render(); };
+    box.querySelector("#emailInput").addEventListener("keydown", (e) => { if(e.key === "Enter") tryLogin(); });
+  } else {
+    // Field teams land here by default — straight to a team-name prompt, no
+    // intermediate "who are you" choice screen.
     box.innerHTML = `
       <h2>Field Team</h2>
-      <p>Enter your team name to view and edit your runs.</p>
+      <p>Enter your team name to view and edit the runs your team submitted.</p>
       <input id="teamInput" type="text" placeholder="e.g. Team A, Route 5" autocomplete="off" />
-      <button id="teamBtn">View My Runs</button>
-      <div class="toggle"><button id="backBtn">Back</button></div>
-      <div class="err">${state.loginErr}</div>
+      <button class="primary" id="teamBtn">View My Runs</button>
+      <div class="toggle">Lab admin? <button id="adminLoginBtn">Log in here</button></div>
+      <div class="err">${state.authErr}</div>
     `;
     box.querySelector("#teamBtn").onclick = () => {
       const team = document.getElementById("teamInput").value.trim();
-      if (!team) {
-        state.loginErr = "Team name required";
+      if(!team){
+        state.authErr = "Team name required";
         render();
       } else {
         state.teamId = team;
-        state.mode = "teamView";
-        state.loginErr = "";
+        state.authErr = "";
+        render();
         fetchEntries();
+        startPolling();
       }
     };
-    box.querySelector("#backBtn").onclick = () => { state.mode = "login"; state.loginErr = ""; render(); };
-    box.querySelector("#teamInput").addEventListener("keydown", (e) => { if (e.key === "Enter") box.querySelector("#teamBtn").click(); });
-  } else {
-    box.innerHTML = `
-      <h2>Edit Runs</h2>
-      <p>Are you a lab admin or field team?</p>
-      <button id="adminBtn">Lab Admin Login</button>
-      <button id="teamBtn" style="background:var(--teal-bg);color:var(--teal-dark);">Field Team</button>
-      <div class="err">${state.loginErr}</div>
-    `;
-    box.querySelector("#adminBtn").onclick = () => { state.mode = "login"; state.loginErr = ""; render(); showAdminLogin(); };
-    box.querySelector("#teamBtn").onclick = () => { state.mode = "teamSelect"; state.loginErr = ""; render(); };
+    box.querySelector("#adminLoginBtn").onclick = () => { state.mode = "adminLogin"; state.authErr = ""; render(); };
+    box.querySelector("#teamInput").addEventListener("keydown", (e) => { if(e.key === "Enter") box.querySelector("#teamBtn").click(); });
+    setTimeout(() => box.querySelector("#teamInput")?.focus(), 0);
   }
 
   main.appendChild(box);
@@ -205,36 +308,14 @@ function renderAuthGate() {
   return wrap;
 }
 
-function showAdminLogin() {
-  setTimeout(() => {
-    const box = document.querySelector(".authbox");
-    if (box) {
-      box.innerHTML = `
-        <h2>Lab Admin Login</h2>
-        <p>Log in with your credentials.</p>
-        <input id="emailInput" type="email" placeholder="Email" autocomplete="email" />
-        <input id="pwInput" type="password" placeholder="Password" autocomplete="current-password" />
-        <button id="loginBtn">Log In</button>
-        <div class="toggle"><button id="backBtn2">Back</button></div>
-        <div class="err">${state.loginErr}</div>
-      `;
-      document.getElementById("loginBtn").onclick = tryLogin;
-      document.getElementById("backBtn2").onclick = () => { state.mode = "login"; state.loginErr = ""; render(); };
-      document.getElementById("emailInput").addEventListener("keydown", (e) => { if (e.key === "Enter") tryLogin(); });
-    }
-  }, 0);
-}
-
-async function tryLogin() {
+async function tryLogin(){
   const email = document.getElementById("emailInput")?.value || "";
   const password = document.getElementById("pwInput")?.value || "";
-
-  if (!email.trim() || !password.trim()) {
-    state.loginErr = "Email and password required";
+  if(!email.trim() || !password.trim()){
+    state.authErr = "Email and password required";
     render();
     return;
   }
-
   try {
     const res = await fetch("/api/users", {
       method: "POST",
@@ -242,37 +323,53 @@ async function tryLogin() {
       body: JSON.stringify({ action: "login", email: email.trim(), password })
     });
     const data = await res.json();
-    if (!res.ok) {
-      state.loginErr = data.error || "Login failed";
+    if(!res.ok){
+      state.authErr = data.error || "Login failed";
       render();
-      showAdminLogin();
     } else {
       state.token = data.token;
       state.user = data.user;
       sessionStorage.setItem("tl_admin_token", state.token);
-      state.loginErr = "";
-      state.mode = "adminView";
+      state.authErr = "";
       render();
       fetchEntries();
+      startPolling();
     }
   } catch (err) {
-    state.loginErr = "Couldn't reach server";
+    state.authErr = "Couldn't reach server";
     render();
-    showAdminLogin();
   }
 }
 
-function renderAdminView() {
-  const wrap = document.createElement("div");
-  const header = document.createElement("header");
-  header.innerHTML = `<div><h1>Taxonomy Logger</h1><span class="sub">Edit Runs</span></div>`;
+function logout(){
+  state.user = null;
+  state.token = null;
+  sessionStorage.removeItem("tl_admin_token");
+  state.teamId = null;
+  state.mode = "teamSelect";
+  state.authErr = "";
+  state.entries = [];
+  if(pollTimer) clearInterval(pollTimer);
+  render();
+}
 
+function renderDashboard(){
+  const wrap = document.createElement("div");
+
+  const header = document.createElement("header");
+  const sub = STUDY_ID === "default" ? "Admin" : escapeHtml(STUDY_NAME);
+  header.innerHTML = `<h1>Taxonomy Logger</h1><span class="sub">${sub}</span>
+    <span class="livepill"><span class="livedot"></span>Live</span>`;
   const userinfo = document.createElement("div");
   userinfo.className = "userinfo";
-  if (state.teamId) {
-    userinfo.innerHTML = `<span>${state.teamId}</span>`;
+  if(state.teamId){
+    userinfo.innerHTML = `<span>${escapeHtml(state.teamId)}</span>`;
+    const switchBtn = document.createElement("button");
+    switchBtn.textContent = "Switch Team";
+    switchBtn.onclick = logout;
+    userinfo.appendChild(switchBtn);
   } else {
-    userinfo.innerHTML = `<span>${state.user.email}</span>`;
+    userinfo.innerHTML = `<span>${escapeHtml(state.user.email)}</span>`;
     const logoutBtn = document.createElement("button");
     logoutBtn.textContent = "Log Out";
     logoutBtn.onclick = logout;
@@ -283,213 +380,476 @@ function renderAdminView() {
 
   const main = document.createElement("main");
 
-  if (state.editingId) {
-    main.appendChild(renderEditEntry());
-  } else {
-    main.appendChild(renderEntriesList());
-  }
-
-  wrap.appendChild(main);
-  return wrap;
-}
-
-function renderEntriesList() {
-  const card = document.createElement("div");
-  card.className = "card";
-  card.innerHTML = `<h2>Runs — Week ${state.week}</h2>`;
-
-  if (state.loading) {
-    const empty = document.createElement("div");
-    empty.className = "empty";
-    empty.textContent = "Loading…";
-    card.appendChild(empty);
-    return card;
-  }
-
-  const filtered = state.teamId
+  const scoped = state.teamId
     ? state.entries.filter(e => e.teamId === state.teamId)
     : state.entries;
 
-  if (filtered.length === 0) {
+  const topbar = document.createElement("div");
+  topbar.className = "topbar";
+  topbar.innerHTML = `
+    <div class="weeknav">
+      <button id="prevWeek">‹</button>
+      <span class="weeklabel">${state.week}</span>
+      <button id="nextWeek">›</button>
+    </div>
+    <button class="refreshbtn" id="refreshBtn">${state.loading ? "Refreshing…" : "↻ Refresh"}</button>
+    <span class="updated">${state.lastUpdated ? "Updated " + state.lastUpdated.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : ""}</span>
+    ${isAdmin() ? '<button class="exportbtn" id="exportBtn">⬇ Download Weekly CSV</button>' : ''}
+  `;
+  main.appendChild(topbar);
+
+  // Stats
+  const byTeam = {};
+  const byDay = {};
+  scoped.forEach(e => {
+    byTeam[e.teamId] = (byTeam[e.teamId] || 0) + 1;
+    byDay[e.date] = (byDay[e.date] || 0) + 1;
+  });
+  const days = Object.keys(byDay).sort();
+  const teamIdsPresent = Object.keys(byTeam).sort();
+
+  const statGrid = document.createElement("div");
+  statGrid.className = "statgrid";
+  statGrid.innerHTML = `
+    <div class="statcard"><div class="num">${scoped.length}</div><div class="lbl">Total This Week</div></div>
+    ${isAdmin() ? teamIdsPresent.map(t => `<div class="statcard"><div class="num">${byTeam[t]||0}</div><div class="lbl">${escapeHtml(t)}</div></div>`).join("") : ""}
+  `;
+  main.appendChild(statGrid);
+
+  // Day filter tabs
+  if(days.length > 0){
+    const dayTabs = document.createElement("div");
+    dayTabs.className = "daytabs";
+    const allTab = document.createElement("button");
+    allTab.className = "daytab" + (state.dayFilter === "all" ? " active" : "");
+    allTab.innerHTML = `All Days <span class="cnt">${scoped.length}</span>`;
+    allTab.onclick = () => { state.dayFilter = "all"; render(); };
+    dayTabs.appendChild(allTab);
+    days.forEach(d => {
+      const tab = document.createElement("button");
+      tab.className = "daytab" + (state.dayFilter === d ? " active" : "");
+      const label = new Date(d + "T00:00:00").toLocaleDateString([], {weekday:'short', month:'short', day:'numeric'});
+      tab.innerHTML = `${label} <span class="cnt">${byDay[d]}</span>`;
+      tab.onclick = () => { state.dayFilter = d; render(); };
+      dayTabs.appendChild(tab);
+    });
+    main.appendChild(dayTabs);
+  }
+
+  const visible = scoped
+    .filter(e => state.dayFilter === "all" || e.date === state.dayFilter)
+    .sort((a,b) => String(b.timestamp).localeCompare(String(a.timestamp)));
+
+  if(visible.length === 0){
     const empty = document.createElement("div");
     empty.className = "empty";
-    empty.textContent = state.teamId ? "No runs submitted yet." : "No entries for this week.";
-    card.appendChild(empty);
-    return card;
+    empty.textContent = state.loading ? "Loading…" : (state.teamId ? "No runs submitted yet." : "No entries for this selection.");
+    main.appendChild(empty);
+  } else {
+    main.appendChild(renderTeamAccordion(visible));
   }
 
-  filtered.forEach(e => {
+  wrap.appendChild(main);
+
+  topbar.querySelector("#prevWeek").onclick = () => { state.week = shiftWeek(state.week, -1); state.dayFilter = "all"; render(); fetchEntries(); };
+  topbar.querySelector("#nextWeek").onclick = () => { state.week = shiftWeek(state.week, 1); state.dayFilter = "all"; render(); fetchEntries(); };
+  topbar.querySelector("#refreshBtn").onclick = fetchEntries;
+  const exportBtn = topbar.querySelector("#exportBtn");
+  if(exportBtn){
+    exportBtn.onclick = () => {
+      window.location.href = `/api/entries?week=${encodeURIComponent(state.week)}&study=${encodeURIComponent(STUDY_ID)}&format=csv`;
+    };
+  }
+
+  return wrap;
+}
+
+function groupIntoRounds(entries){
+  const map = new Map();
+  entries.forEach(e => {
+    const key = `${e.teamId}::${e.captureSessionId || e.calibrationSessionId || e.id}`;
+    if(!map.has(key)) map.set(key, []);
+    map.get(key).push(e);
+  });
+  const rounds = [...map.values()];
+  rounds.forEach(r => r.sort((a,b) => String(a.timestamp).localeCompare(String(b.timestamp))));
+  rounds.sort((a,b) => String(b[b.length-1].timestamp).localeCompare(String(a[a.length-1].timestamp)));
+  return rounds;
+}
+
+function groupEntriesBySign(entries){
+  const map = new Map();
+  entries.forEach(e => {
+    if(!map.has(e.signType)) map.set(e.signType, []);
+    map.get(e.signType).push(e);
+  });
+  const groups = [...map.entries()].map(([signType, items]) => ({
+    signType,
+    items: items.slice().sort((a,b) => String(a.timestamp).localeCompare(String(b.timestamp)))
+  }));
+  groups.sort((a,b) => String(b.items[b.items.length-1].timestamp).localeCompare(String(a.items[a.items.length-1].timestamp)));
+  return groups;
+}
+
+function renderTeamAccordion(entries){
+  const container = document.createElement("div");
+  container.className = "accordion";
+
+  const byTeam = new Map();
+  entries.forEach(e => {
+    if(!byTeam.has(e.teamId)) byTeam.set(e.teamId, []);
+    byTeam.get(e.teamId).push(e);
+  });
+  const teamIds = [...byTeam.keys()].sort();
+
+  // A single-team view (field team mode) skips the collapsible wrapper and
+  // shows runs directly — there's nothing else to collapse against.
+  const singleTeamView = !isAdmin() && teamIds.length <= 1;
+
+  teamIds.forEach(teamId => {
+    const teamEntries = byTeam.get(teamId);
+    const rounds = groupIntoRounds(teamEntries);
+
+    if(singleTeamView){
+      rounds.forEach(round => container.appendChild(renderRoundBlock(round)));
+      return;
+    }
+
+    const isOpen = state.expandedTeams.has(teamId);
+
+    const group = document.createElement("div");
+    group.className = "team-group";
+
+    const dates = [...new Set(teamEntries.map(e => e.date))].sort();
+    const fmtDate = (d) => new Date(d + "T00:00:00").toLocaleDateString([], {month:"short", day:"numeric"});
+    const dateLabel = dates.length === 1 ? fmtDate(dates[0]) : `${fmtDate(dates[0])}–${fmtDate(dates[dates.length-1])}`;
+
+    const header = document.createElement("button");
+    header.className = "team-header";
+    header.innerHTML = `
+      <span class="chevron${isOpen ? " open" : ""}">›</span>
+      <span class="teampill">${escapeHtml(teamId)}</span>
+      <span class="summary">${dateLabel} · ${rounds.length} run${rounds.length===1?"":"s"} · ${teamEntries.length} sign${teamEntries.length===1?"":"s"}</span>
+    `;
+    header.onclick = () => {
+      if(isOpen) state.expandedTeams.delete(teamId); else state.expandedTeams.add(teamId);
+      render();
+    };
+    group.appendChild(header);
+
+    if(isOpen){
+      const body = document.createElement("div");
+      body.className = "team-body";
+      rounds.forEach(round => body.appendChild(renderRoundBlock(round)));
+      group.appendChild(body);
+    }
+
+    container.appendChild(group);
+  });
+
+  return container;
+}
+
+function runKeyFor(entry){
+  return `${entry.teamId}::${entry.captureSessionId || entry.calibrationSessionId || entry.id}`;
+}
+
+function renderRoundBlock(round){
+  const first = round[0];
+  const runKey = runKeyFor(first);
+  const block = document.createElement("div");
+  block.className = "round-block";
+
+  if(state.editingRunKey === runKey){
+    block.appendChild(renderRunEditForm(round, runKey));
+    return block;
+  }
+
+  const time = new Date(first.timestamp).toLocaleString([], {weekday:'short', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
+  const metaRow = document.createElement("div");
+  metaRow.style.cssText = "display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px;";
+  const meta = document.createElement("div");
+  meta.className = "round-meta";
+  meta.style.marginBottom = "0";
+  meta.innerHTML = `<b>${round.length} sign${round.length===1?"":"s"}</b> · ${time} · ${first.protocol} · ${first.environment} · Kit ${first.objectKit} · Rt ${escapeHtml(first.route)}
+    · Cal ${escapeHtml(first.calibrationSessionId||"")} · Cap ${escapeHtml(first.captureSessionId||"")}
+    ${first.sessionNotes ? `<br>Session: "${escapeHtml(first.sessionNotes)}"` : ""}`;
+  metaRow.appendChild(meta);
+
+  const runActions = document.createElement("div");
+  runActions.style.cssText = "display:flex;gap:6px;flex-shrink:0;";
+  const editRunBtn = document.createElement("button");
+  editRunBtn.className = "rowbtn edit";
+  editRunBtn.textContent = "Edit Run";
+  editRunBtn.onclick = () => {
+    state.editingRunKey = runKey;
+    state.editRunDraft = {
+      calibrationSessionId: first.calibrationSessionId || "",
+      captureSessionId: first.captureSessionId || "",
+      sessionNotes: first.sessionNotes || ""
+    };
+    render();
+  };
+  runActions.appendChild(editRunBtn);
+  // Delete is destructive and hard to undo — field teams (no admin session)
+  // never see this button at all, only lab admins/superadmins do.
+  if(isAdmin()){
+    const deleteRunBtn = document.createElement("button");
+    deleteRunBtn.className = "rowbtn del";
+    deleteRunBtn.textContent = "Delete Run";
+    deleteRunBtn.onclick = () => deleteRun(round);
+    runActions.appendChild(deleteRunBtn);
+  }
+  metaRow.appendChild(runActions);
+  block.appendChild(metaRow);
+
+  groupEntriesBySign(round).forEach(group => {
+    const latest = group.items[group.items.length - 1];
+
+    if(state.editingId === latest.id){
+      block.appendChild(renderEntryEditRow(latest));
+      return;
+    }
+
     const row = document.createElement("div");
-    row.className = "entry";
+    row.className = "sign-row";
+    const editedTag = latest.editedAt ? ` · edited ${new Date(latest.editedAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}` : "";
     row.innerHTML = `
-      <div class="entry-header">
-        <div>
-          <div class="entry-info">${escapeHtml(e.signType)} · ${escapeHtml(e.protocol || "?")}</div>
-          <div class="entry-meta">${e.date} ${e.timestamp} · Route: ${escapeHtml(e.route || "?")}</div>
-        </div>
-        <div class="entry-actions">
-          <button>Edit</button>
-          ${!state.teamId ? '<button class="del">Delete</button>' : ''}
-        </div>
+      <div>
+        <div class="sign-name">${SIGN_EMOJI[group.signType]||""} ${escapeHtml(group.signType)}${group.items.length>1 ? `<span class="countbadge">×${group.items.length}</span>` : ""}</div>
+        <div class="round-meta">${new Date(latest.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}${editedTag}</div>
       </div>
     `;
-    row.querySelector("button").onclick = () => {
-      state.editingId = e.id;
-      state.editDraft = { ...e };
+    const actions = document.createElement("div");
+    actions.style.cssText = "display:flex;gap:6px;flex-shrink:0;";
+    const editBtn = document.createElement("button");
+    editBtn.className = "rowbtn edit";
+    editBtn.textContent = "Edit";
+    editBtn.onclick = () => {
+      state.editingId = latest.id;
+      state.editDraft = {
+        signType: latest.signType,
+        calibrationSessionId: latest.calibrationSessionId || "",
+        captureSessionId: latest.captureSessionId || "",
+        sessionNotes: latest.sessionNotes || ""
+      };
       render();
     };
-    if (!state.teamId) {
-      row.querySelector("button.del").onclick = () => deleteEntry(e.id);
+    actions.appendChild(editBtn);
+    if(isAdmin()){
+      const delBtn = document.createElement("button");
+      delBtn.className = "rowbtn del";
+      delBtn.textContent = group.items.length > 1 ? "Delete one" : "Delete";
+      delBtn.onclick = () => deleteEntry(latest);
+      actions.appendChild(delBtn);
     }
-    card.appendChild(row);
+    row.appendChild(actions);
+
+    block.appendChild(row);
   });
 
-  return card;
+  return block;
 }
 
-function renderEditEntry() {
-  const entry = state.editDraft;
-  const card = document.createElement("div");
-  card.className = "card";
-  card.innerHTML = `<h2>Edit Run</h2>`;
+function renderEntryEditRow(entry){
+  const row = document.createElement("div");
+  row.className = "editrow";
+  row.style.cssText = "padding:8px 0;display:flex;flex-direction:column;gap:6px;";
 
-  const fields = [
-    { label: "Date", key: "date", type: "date" },
-    { label: "Route", key: "route", type: "text" },
-    { label: "Sign Type", key: "signType", type: "text" },
-    { label: "Note", key: "note", type: "textarea" }
-  ];
-
-  fields.forEach(f => {
-    const div = document.createElement("div");
-    div.className = "field";
-    const lbl = document.createElement("label");
-    lbl.textContent = f.label;
-    div.appendChild(lbl);
-
-    if (f.type === "textarea") {
-      const ta = document.createElement("textarea");
-      ta.value = entry[f.key] || "";
-      ta.oninput = (e) => { entry[f.key] = e.target.value; };
-      div.appendChild(ta);
-    } else {
-      const input = document.createElement("input");
-      input.type = f.type;
-      input.value = entry[f.key] || "";
-      input.oninput = (e) => { entry[f.key] = e.target.value; };
-      div.appendChild(input);
-    }
-    card.appendChild(div);
+  const select = document.createElement("select");
+  SIGN_TYPES.forEach(s => {
+    const opt = document.createElement("option");
+    opt.value = s; opt.textContent = `${SIGN_EMOJI[s]} ${s}`;
+    if(s === state.editDraft.signType) opt.selected = true;
+    select.appendChild(opt);
   });
+  select.onchange = (e) => { state.editDraft.signType = e.target.value; };
+  row.appendChild(select);
 
+  const actions = document.createElement("div");
+  actions.style.cssText = "display:flex;gap:6px;";
   const saveBtn = document.createElement("button");
-  saveBtn.className = "savebtn";
-  saveBtn.textContent = state.saving ? "Saving…" : "Save Changes";
-  saveBtn.disabled = state.saving;
-  saveBtn.onclick = saveEntry;
-  card.appendChild(saveBtn);
+  saveBtn.className = "rowbtn edit";
+  saveBtn.textContent = "Save";
+  saveBtn.onclick = () => saveEdit(entry);
+  const cancelBtn = document.createElement("button");
+  cancelBtn.className = "rowbtn";
+  cancelBtn.textContent = "Cancel";
+  cancelBtn.onclick = () => { state.editingId = null; state.editDraft = null; render(); };
+  actions.appendChild(saveBtn);
+  actions.appendChild(cancelBtn);
+  row.appendChild(actions);
 
-  const backBtn = document.createElement("button");
-  backBtn.className = "savebtn";
-  backBtn.style.cssText = "background:transparent;color:var(--ink-soft);border:1px solid var(--border);margin-top:8px;";
-  backBtn.textContent = "Cancel";
-  backBtn.onclick = () => { state.editingId = null; state.editDraft = null; render(); };
-  card.appendChild(backBtn);
-
-  return card;
+  return row;
 }
 
-async function saveEntry() {
-  const entry = state.editDraft;
-  state.saving = true;
-  render();
+function renderRunEditForm(round, runKey){
+  const wrap = document.createElement("div");
+  wrap.className = "editrow";
+  wrap.style.cssText = "display:flex;flex-direction:column;gap:8px;";
 
+  const title = document.createElement("div");
+  title.style.cssText = "font-size:12px;font-weight:700;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.04em;";
+  title.textContent = `Editing Run (${round.length} sign${round.length===1?"":"s"})`;
+  wrap.appendChild(title);
+
+  const calInput = document.createElement("input");
+  calInput.type = "text";
+  calInput.placeholder = "Calibration Session ID";
+  calInput.value = state.editRunDraft.calibrationSessionId;
+  calInput.oninput = (e) => { state.editRunDraft.calibrationSessionId = e.target.value; };
+  wrap.appendChild(calInput);
+
+  const capInput = document.createElement("input");
+  capInput.type = "text";
+  capInput.placeholder = "Capture Session ID";
+  capInput.value = state.editRunDraft.captureSessionId;
+  capInput.oninput = (e) => { state.editRunDraft.captureSessionId = e.target.value; };
+  wrap.appendChild(capInput);
+
+  const notesInput = document.createElement("input");
+  notesInput.type = "text";
+  notesInput.placeholder = "Session notes";
+  notesInput.value = state.editRunDraft.sessionNotes;
+  notesInput.oninput = (e) => { state.editRunDraft.sessionNotes = e.target.value; };
+  wrap.appendChild(notesInput);
+
+  const actions = document.createElement("div");
+  actions.style.cssText = "display:flex;gap:6px;";
+  const saveBtn = document.createElement("button");
+  saveBtn.className = "rowbtn edit";
+  saveBtn.textContent = "Save Run";
+  saveBtn.onclick = () => bulkSaveRun(round, runKey);
+  const cancelBtn = document.createElement("button");
+  cancelBtn.className = "rowbtn";
+  cancelBtn.textContent = "Cancel";
+  cancelBtn.onclick = () => { state.editingRunKey = null; state.editRunDraft = null; render(); };
+  actions.appendChild(saveBtn);
+  actions.appendChild(cancelBtn);
+  wrap.appendChild(actions);
+
+  return wrap;
+}
+
+function authHeaders(){
+  const headers = { "content-type": "application/json" };
+  if(state.token) headers["x-user-token"] = state.token;
+  return headers;
+}
+
+async function bulkSaveRun(round, runKey){
+  const updates = { ...state.editRunDraft };
   try {
-    const updates = {
-      date: entry.date,
-      route: entry.route,
-      signType: entry.signType,
-      note: entry.note
-    };
-
-    const payload = { id: entry.id, studyId: STUDY_ID, week: state.week, updates };
-    if (state.teamId) payload.teamId = state.teamId;
-    if (state.user) payload.userToken = state.token;
-
-    const res = await fetch("/api/entries", {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-
-    if (!res.ok) {
-      const data = await res.json();
-      alert(data.error || "Save failed");
-    } else {
-      state.editingId = null;
-      state.editDraft = null;
-      fetchEntries();
-    }
+    const results = await Promise.all(round.map(entry =>
+      fetch("/api/entries", {
+        method: "PATCH",
+        headers: authHeaders(),
+        body: JSON.stringify({ week: state.week, id: entry.id, studyId: STUDY_ID, teamId: state.teamId || undefined, updates })
+      }).then(res => { if(!res.ok) throw new Error("Save failed"); return res.json(); })
+    ));
+    const updatedById = new Map(results.map(r => [r.entry.id, r.entry]));
+    state.entries = state.entries.map(e => updatedById.has(e.id) ? updatedById.get(e.id) : e);
+    state.editingRunKey = null;
+    state.editRunDraft = null;
+    render();
   } catch (err) {
-    alert("Couldn't save entry");
+    alert("Couldn't save run — some signs may not have updated. Try again.");
   }
-  state.saving = false;
 }
 
-async function deleteEntry(id) {
-  if (!confirm("Delete this run?")) return;
-
+async function deleteRun(round){
+  if(!confirm(`Delete this entire run (${round.length} sign${round.length===1?"":"s"}) from ${round[0].teamId}? This cannot be undone.`)) return;
   try {
-    const payload = { id, studyId: STUDY_ID, week: state.week };
-    if (state.user) payload.userToken = state.token;
-
-    const res = await fetch("/api/entries", {
-      method: "DELETE",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-
-    if (!res.ok) {
-      const data = await res.json();
-      alert(data.error || "Delete failed");
-    } else {
-      state.entries = state.entries.filter(e => e.id !== id);
-      render();
-    }
+    const results = await Promise.all(round.map(entry =>
+      fetch("/api/entries", {
+        method: "DELETE",
+        headers: authHeaders(),
+        body: JSON.stringify({ week: state.week, id: entry.id, studyId: STUDY_ID })
+      })
+    ));
+    if(results.some(r => !r.ok)) throw new Error("Delete failed");
+    const ids = new Set(round.map(e => e.id));
+    state.entries = state.entries.filter(e => !ids.has(e.id));
+    render();
   } catch (err) {
-    alert("Couldn't delete entry");
+    alert("Couldn't delete the full run — some signs may remain. Try again.");
   }
 }
 
-async function fetchEntries() {
+async function fetchEntries(){
   state.loading = true;
   render();
-
   try {
-    const url = `/api/entries?study=${encodeURIComponent(STUDY_ID || "default")}&week=${state.week}`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error("Fetch failed");
+    const res = await fetch(`/api/entries?week=${encodeURIComponent(state.week)}&study=${encodeURIComponent(STUDY_ID)}`);
     const data = await res.json();
     state.entries = data.entries || [];
+    state.lastUpdated = new Date();
   } catch (err) {
-    // keep last known list
+    // silent fail, keep last known data
   }
   state.loading = false;
   render();
 }
 
-function logout() {
-  state.user = null;
-  state.token = null;
-  sessionStorage.removeItem("tl_admin_token");
-  state.mode = "login";
-  state.loginErr = "";
-  state.editingId = null;
-  render();
+async function deleteEntry(entry){
+  if(!confirm(`Delete this ${entry.signType} entry from ${entry.teamId}?`)) return;
+  try {
+    const res = await fetch("/api/entries", {
+      method: "DELETE",
+      headers: authHeaders(),
+      body: JSON.stringify({ week: state.week, id: entry.id, studyId: STUDY_ID })
+    });
+    if(!res.ok){
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || "Delete failed");
+    }
+    state.entries = state.entries.filter(e => e.id !== entry.id);
+    render();
+  } catch (err) {
+    alert(err.message || "Couldn't delete — try again");
+  }
 }
 
-function escapeHtml(s) {
-  return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+async function saveEdit(entry){
+  try {
+    const res = await fetch("/api/entries", {
+      method: "PATCH",
+      headers: authHeaders(),
+      body: JSON.stringify({ week: state.week, id: entry.id, studyId: STUDY_ID, teamId: state.teamId || undefined, updates: state.editDraft })
+    });
+    if(!res.ok){
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || "Save failed");
+    }
+    const { entry: updated } = await res.json();
+    state.entries = state.entries.map(e => e.id === entry.id ? updated : e);
+    state.editingId = null;
+    state.editDraft = null;
+    render();
+  } catch (err) {
+    alert(err.message || "Couldn't save — try again");
+  }
+}
+
+function startPolling(){
+  if(pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(fetchEntries, 15000);
+}
+
+function escapeHtml(s){
+  return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+async function init(){
+  await restoreSession();
+  render();
+  if(state.user){
+    fetchEntries();
+    startPolling();
+  }
+  if(STUDY_ID !== "default"){
+    loadStudy();
+  }
 }
 
 init();

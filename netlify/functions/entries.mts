@@ -1,5 +1,7 @@
 import type { Context, Config } from "@netlify/functions";
 import { getStore } from "@netlify/blobs";
+import { verifyToken } from "./utils/auth.mts";
+import { usersStore } from "./utils/store.mts";
 
 const CSV_COLUMNS = [
   "date", "timestamp", "team_id", "protocol", "environment", "object_kit",
@@ -40,6 +42,24 @@ function toCsv(entries: any[]): string {
       e.route, e.calibrationSessionId, e.captureSessionId, e.signType, e.note, e.sessionNotes
     ].map(csvEscape).join(","));
   return [CSV_COLUMNS.join(","), ...rows].join("\n");
+}
+
+// Resolves the requesting lab admin/superadmin from the bearer token, if present.
+// A valid token here means "acting with admin oversight" — it's what grants
+// cross-team edit access and is the *only* thing that grants delete access.
+// Field teams never hold one of these; they authenticate purely by naming
+// their team, which is why deletion (a destructive, hard-to-undo action) is
+// gated on this instead of on teamId matching.
+async function resolveAdmin(req: Request): Promise<{ id: string; role: string } | null> {
+  const token = req.headers.get("x-user-token");
+  if (!token) return null;
+  const payload = verifyToken(token);
+  if (!payload || !payload.id) return null;
+
+  const store = usersStore();
+  const users = (await store.get("users", { type: "json" }) as any[] | null) || [];
+  const user = users.find((u) => u.id === payload.id);
+  return user ? { id: user.id, role: user.role } : null;
 }
 
 export default async (req: Request, context: Context) => {
@@ -90,10 +110,11 @@ export default async (req: Request, context: Context) => {
 
   if (req.method === "PATCH") {
     const body = await req.json();
+    const admin = await resolveAdmin(req);
     const teamId = body.teamId;
 
-    // Require team ID for editing
-    if (!teamId) {
+    // Either an authenticated lab admin/superadmin, or the owning team, may edit.
+    if (!admin && !teamId) {
       return Response.json({ error: "teamId is required" }, { status: 400 });
     }
 
@@ -103,12 +124,11 @@ export default async (req: Request, context: Context) => {
     const existing = await store.get(key, { type: "json" });
     if (!existing) return new Response("Not found", { status: 404 });
 
-    // Only team that submitted can edit
-    if (existing.teamId !== teamId) {
+    if (!admin && existing.teamId !== teamId) {
       return Response.json({ error: "you can only edit entries from your team" }, { status: 403 });
     }
 
-    const allowedFields = ["signType", "calibrationSessionId", "captureSessionId", "sessionNotes"];
+    const allowedFields = ["date", "route", "signType", "calibrationSessionId", "captureSessionId", "sessionNotes", "note"];
     const updates = body.updates || {};
     const merged = { ...existing };
     for (const field of allowedFields) {
@@ -121,23 +141,18 @@ export default async (req: Request, context: Context) => {
   }
 
   if (req.method === "DELETE") {
-    const body = await req.json();
-    const teamId = body.teamId;
-
-    // Require team ID for deletion
-    if (!teamId) {
-      return Response.json({ error: "teamId is required" }, { status: 400 });
+    // Deletion is destructive and hard to undo, so it's restricted to
+    // authenticated lab admins/superadmins only — field teams can edit their
+    // own runs (see PATCH above) but can never delete one, by design.
+    const admin = await resolveAdmin(req);
+    if (!admin) {
+      return Response.json({ error: "only lab admins can delete entries" }, { status: 403 });
     }
 
+    const body = await req.json();
     const prefix = keyPrefix(body.studyId || null);
     const week = body.week || isoWeek(new Date().toISOString().slice(0, 10));
     const key = `${prefix}${week}/${body.id}`;
-
-    // Check ownership before deleting
-    const existing = await store.get(key, { type: "json" });
-    if (existing && existing.teamId !== teamId) {
-      return Response.json({ error: "you can only delete entries from your team" }, { status: 403 });
-    }
 
     await store.delete(key);
     return Response.json({ ok: true });
