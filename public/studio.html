@@ -34,22 +34,26 @@
     -webkit-font-smoothing:antialiased;color-scheme:light;}
   @media (prefers-color-scheme: dark){ html,body{color-scheme:dark;} }
 
-  header{padding:20px 28px;display:flex;align-items:baseline;gap:10px;}
+  header{padding:20px 28px;display:flex;align-items:baseline;gap:10px;justify-content:space-between;}
   header h1{font-size:20px;margin:0;font-weight:700;letter-spacing:-0.02em;}
   header .sub{font-size:12px;color:var(--teal);font-weight:600;letter-spacing:.02em;}
+  header .userinfo{font-size:12px;color:var(--ink-soft);display:flex;gap:12px;align-items:center;}
+  header .userinfo button{background:transparent;border:none;color:var(--teal);font-size:12px;font-weight:600;padding:0;margin:0;}
 
   main{max-width:900px;margin:0 auto;padding:8px 28px 60px;}
 
-  .gate{max-width:360px;margin:80px auto;background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);
-    padding:28px;box-shadow:var(--shadow-md);text-align:center;}
-  .gate h2{font-size:16px;margin:0 0 6px;font-weight:700;letter-spacing:-0.01em;}
-  .gate p{font-size:13px;color:var(--ink-soft);margin:0 0 18px;}
-  .gate input{width:100%;padding:12px;border:1px solid var(--border);border-radius:var(--r-sm);font-size:16px;margin-bottom:12px;
-    text-align:center;letter-spacing:2px;background:var(--card);color:var(--ink);}
-  .gate input:focus{outline:none;border-color:var(--teal);box-shadow:0 0 0 4px var(--teal-bg);}
-  .gate button{width:100%;padding:13px;border:none;border-radius:var(--r-sm);background:var(--teal);color:#fff;
-    font-weight:600;font-size:14px;}
-  .gate .err{color:var(--red);font-size:12.5px;margin-top:10px;min-height:16px;}
+  .authbox{max-width:360px;margin:80px auto;background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);
+    padding:28px;box-shadow:var(--shadow-md);}
+  .authbox h2{font-size:16px;margin:0 0 6px;font-weight:700;letter-spacing:-0.01em;}
+  .authbox p{font-size:13px;color:var(--ink-soft);margin:0 0 18px;}
+  .authbox input{width:100%;padding:12px;border:1px solid var(--border);border-radius:var(--r-sm);font-size:16px;margin-bottom:12px;
+    background:var(--card);color:var(--ink);}
+  .authbox input:focus{outline:none;border-color:var(--teal);box-shadow:0 0 0 4px var(--teal-bg);}
+  .authbox button{width:100%;padding:13px;border:none;border-radius:var(--r-sm);background:var(--teal);color:#fff;
+    font-weight:600;font-size:14px;margin-bottom:8px;}
+  .authbox .toggle{text-align:center;font-size:12.5px;color:var(--ink-soft);}
+  .authbox .toggle button{width:auto;background:none;color:var(--teal);padding:0;margin:0;text-decoration:underline;}
+  .authbox .err{color:var(--red);font-size:12.5px;margin-top:10px;min-height:16px;}
 
   .card{background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);padding:22px;margin-bottom:20px;
     box-shadow:var(--shadow-sm);}
@@ -107,9 +111,6 @@
 <div id="app"></div>
 
 <script>
-// Shown only as inspiration text near each list editor — the form itself
-// starts empty so the DRI adds exactly what their study needs instead of
-// deleting a pre-filled list every time.
 const EXAMPLE_PROTOCOLS = "Walk, Exploration, Fast-Walk";
 const EXAMPLE_ENVIRONMENTS = "Urban Street, Near Restaurant, Popular Landmark, Near Corporate, Residential, Parking Garages and Parking Lots, City Parks, Gas Station";
 const EXAMPLE_SIGN_TYPES = "🚧 Construction Sign, 🦓 Crosswalk, 🛑 Stop Sign, 🚦 Traffic Light, 🅿️ Parking Area, 🚶 Pedestrian Zone Sign …";
@@ -126,8 +127,13 @@ function blankForm(){
 }
 
 let state = {
-  authed: sessionStorage.getItem("tl_studio_ok") === "1",
-  passcodeErr: "",
+  user: null,
+  token: sessionStorage.getItem("tl_token"),
+  authMode: "login", // "login" or "bootstrap"
+  authErr: "",
+  bootstrapErr: "",
+  adminTab: "studies", // "studies" or "users" (for superadmin)
+  users: [],
   studies: [],
   loading: false,
   saving: false,
@@ -138,59 +144,217 @@ let state = {
 
 const app = document.getElementById("app");
 
-function render(){
-  app.innerHTML = "";
-  app.appendChild(state.authed ? renderDashboard() : renderGate());
-}
-
-function renderGate(){
-  const wrap = document.createElement("div");
-  wrap.innerHTML = `
-    <header><h1>Taxonomy Logger</h1><span class="sub">Study Builder</span></header>
-    <div class="gate">
-      <h2>DRI / Lab Admin Access</h2>
-      <p>Enter the studio passcode to create and manage studies.</p>
-      <input id="passcodeInput" type="password" placeholder="Passcode" autocomplete="off" />
-      <button id="unlockBtn">Unlock</button>
-      <div class="err">${state.passcodeErr}</div>
-    </div>
-  `;
-  wrap.querySelector("#unlockBtn").onclick = tryUnlock;
-  wrap.querySelector("#passcodeInput").addEventListener("keydown", (e) => { if(e.key === "Enter") tryUnlock(); });
-  setTimeout(() => wrap.querySelector("#passcodeInput")?.focus(), 0);
-  return wrap;
-}
-
-async function tryUnlock(){
-  const input = document.getElementById("passcodeInput");
+async function checkBootstrapNeeded(){
+  // Check if any superadmin exists
   try {
-    const res = await fetch("/api/admin-auth", {
+    const res = await fetch("/api/users", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ passcode: input.value, studyId: "__studio__" })
+      body: JSON.stringify({ action: "listUsers" })
     });
-    if(res.ok){
-      sessionStorage.setItem("tl_studio_ok", "1");
-      state.authed = true;
-      state.passcodeErr = "";
-      render();
-      fetchStudies();
-    } else {
-      state.passcodeErr = "Incorrect passcode";
-      render();
-    }
-  } catch (err) {
-    state.passcodeErr = "Couldn't reach server — try again";
-    render();
+    // If 403, bootstrap is needed (no superadmin exists and we're not authed)
+    if(res.status === 403) return true;
+    return false;
+  } catch {
+    return false;
   }
 }
 
-function renderDashboard(){
+async function init(){
+  // Check if user is already logged in
+  if(state.token){
+    try {
+      const res = await fetch("/api/users", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-user-token": state.token },
+        body: JSON.stringify({ action: "whoami" })
+      });
+      if(res.ok){
+        const data = await res.json();
+        state.user = data.user;
+        if(data.user.role === "superadmin") fetchUsers();
+        fetchStudies();
+      } else {
+        state.token = null;
+        sessionStorage.removeItem("tl_token");
+      }
+    } catch (err) {
+      state.token = null;
+      sessionStorage.removeItem("tl_token");
+    }
+  } else {
+    // Check if bootstrap is needed
+    const needsBootstrap = await checkBootstrapNeeded();
+    if(needsBootstrap) state.authMode = "bootstrap";
+  }
+  render();
+}
+
+function render(){
+  app.innerHTML = "";
+  if(state.user){
+    app.appendChild(renderDashboard());
+  } else {
+    app.appendChild(renderAuthScreen());
+  }
+}
+
+function renderAuthScreen(){
   const wrap = document.createElement("div");
   wrap.innerHTML = `<header><h1>Taxonomy Logger</h1><span class="sub">Study Builder</span></header>`;
 
   const main = document.createElement("main");
-  if(state.reviewingStudy){
+  const box = document.createElement("div");
+  box.className = "authbox";
+
+  if(state.authMode === "bootstrap"){
+    box.innerHTML = `
+      <h2>Set Up Superadmin Account</h2>
+      <p>Create the first account to get started. A master passcode is required.</p>
+      <input id="bootstrapEmail" type="email" placeholder="Email" autocomplete="email" />
+      <input id="bootstrapPassword" type="password" placeholder="Password (6+ chars)" autocomplete="new-password" />
+      <input id="bootstrapMasterPasscode" type="password" placeholder="Master Passcode" autocomplete="off" />
+      <button id="bootstrapBtn">Create Superadmin</button>
+      <div class="err">${state.bootstrapErr}</div>
+    `;
+    box.querySelector("#bootstrapBtn").onclick = tryBootstrap;
+    box.querySelector("#bootstrapEmail").addEventListener("keydown", (e) => { if(e.key === "Enter") tryBootstrap(); });
+  } else {
+    box.innerHTML = `
+      <h2>DRI / Lab Admin Access</h2>
+      <p>Log in to manage studies.</p>
+      <input id="loginEmail" type="email" placeholder="Email" autocomplete="email" />
+      <input id="loginPassword" type="password" placeholder="Password" autocomplete="current-password" />
+      <button id="loginBtn">Log In</button>
+      <div class="err">${state.authErr}</div>
+    `;
+    box.querySelector("#loginBtn").onclick = tryLogin;
+    box.querySelector("#loginEmail").addEventListener("keydown", (e) => { if(e.key === "Enter") tryLogin(); });
+  }
+
+  main.appendChild(box);
+  wrap.appendChild(main);
+  return wrap;
+}
+
+async function tryBootstrap(){
+  const email = document.getElementById("bootstrapEmail")?.value || "";
+  const password = document.getElementById("bootstrapPassword")?.value || "";
+  const masterPasscode = document.getElementById("bootstrapMasterPasscode")?.value || "";
+
+  if(!email.trim() || !password.trim() || !masterPasscode.trim()){
+    state.bootstrapErr = "All fields are required";
+    render();
+    return;
+  }
+
+  try {
+    const res = await fetch("/api/users", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "bootstrap", email: email.trim(), password, masterPasscode })
+    });
+    const data = await res.json();
+    if(!res.ok){
+      state.bootstrapErr = data.error || "Bootstrap failed";
+      render();
+    } else {
+      state.token = data.token;
+      state.user = data.user;
+      sessionStorage.setItem("tl_token", state.token);
+      state.authErr = "";
+      state.bootstrapErr = "";
+      state.authMode = "login";
+      render();
+      fetchStudies();
+    }
+  } catch (err) {
+    state.bootstrapErr = "Couldn't reach server";
+    render();
+  }
+}
+
+
+async function tryLogin(){
+  const email = document.getElementById("loginEmail")?.value || "";
+  const password = document.getElementById("loginPassword")?.value || "";
+
+  if(!email.trim() || !password.trim()){
+    state.authErr = "Email and password required";
+    render();
+    return;
+  }
+
+  try {
+    const res = await fetch("/api/users", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "login", email: email.trim(), password })
+    });
+    const data = await res.json();
+    if(!res.ok){
+      state.authErr = "Invalid email or password";
+      render();
+    } else {
+      state.token = data.token;
+      state.user = data.user;
+      sessionStorage.setItem("tl_token", state.token);
+      state.authErr = "";
+      state.authMode = "login";
+      render();
+      fetchStudies();
+    }
+  } catch (err) {
+    state.authErr = "Couldn't reach server";
+    render();
+  }
+}
+
+function logout(){
+  state.user = null;
+  state.token = null;
+  sessionStorage.removeItem("tl_token");
+  state.form = blankForm();
+  state.launchResult = null;
+  state.reviewingStudy = false;
+  state.authErr = "";
+  state.authMode = "login";
+  render();
+}
+
+function renderDashboard(){
+  const wrap = document.createElement("div");
+  const header = document.createElement("header");
+  const titleDiv = document.createElement("div");
+  titleDiv.innerHTML = `<h1>Taxonomy Logger</h1><span class="sub">Study Builder</span>`;
+  header.appendChild(titleDiv);
+
+  const userinfo = document.createElement("div");
+  userinfo.className = "userinfo";
+  userinfo.innerHTML = `<span>${escapeHtml(state.user.email)}</span>`;
+  if(state.user.role === "superadmin"){
+    const studiesTabBtn = document.createElement("button");
+    studiesTabBtn.textContent = "Studies";
+    studiesTabBtn.style.cssText = `${state.adminTab === "studies" ? "color: var(--teal-dark);" : ""}`;
+    studiesTabBtn.onclick = () => { state.adminTab = "studies"; render(); };
+    const usersTabBtn = document.createElement("button");
+    usersTabBtn.textContent = "Users";
+    usersTabBtn.style.cssText = `${state.adminTab === "users" ? "color: var(--teal-dark);" : ""}`;
+    usersTabBtn.onclick = () => { state.adminTab = "users"; fetchUsers(); render(); };
+    userinfo.appendChild(studiesTabBtn);
+    userinfo.appendChild(usersTabBtn);
+  }
+  const logoutBtn = document.createElement("button");
+  logoutBtn.textContent = "Log Out";
+  logoutBtn.onclick = logout;
+  userinfo.appendChild(logoutBtn);
+  header.appendChild(userinfo);
+  wrap.appendChild(header);
+
+  const main = document.createElement("main");
+  if(state.user.role === "superadmin" && state.adminTab === "users"){
+    main.appendChild(renderUserManagement());
+  } else if(state.reviewingStudy){
     main.appendChild(renderStudyReview());
   } else {
     main.appendChild(renderForm());
@@ -431,7 +595,7 @@ function renderStudyReview(){
 
 async function saveStudy(){
   const f = state.form;
-  const passcodeRequired = !f.editingId; // editing an existing study may leave passcode blank to keep it unchanged
+  const passcodeRequired = !f.editingId;
   if(!f.name.trim() || (passcodeRequired && !f.passcode.trim())){
     alert("Study Name and Admin Passcode are required.");
     return;
@@ -447,23 +611,21 @@ async function saveStudy(){
     objectKitCount: f.objectKitCount,
     signTypes: f.signTypes.filter(s => s.name.trim())
   };
-  // Only overwrite the passcode if the DRI actually typed a new one — the edit
-  // form loads with this field blank (GET /api/studies never returns the
-  // stored passcode), so leaving it empty must not wipe the existing value.
   if(f.passcode.trim()) payload.passcode = f.passcode.trim();
 
   try {
     let res;
+    const headers = { "content-type": "application/json", "x-user-token": state.token };
     if(f.editingId){
       res = await fetch("/api/studies", {
         method: "PATCH",
-        headers: { "content-type": "application/json" },
+        headers,
         body: JSON.stringify({ id: f.editingId, updates: payload })
       });
     } else {
       res = await fetch("/api/studies", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers,
         body: JSON.stringify(payload)
       });
     }
@@ -485,7 +647,10 @@ async function fetchStudies(){
   state.loading = true;
   render();
   try {
-    const res = await fetch("/api/studies");
+    const res = await fetch("/api/studies", {
+      headers: { "x-user-token": state.token }
+    });
+    if(!res.ok) throw new Error("Fetch failed");
     const data = await res.json();
     state.studies = data.studies || [];
   } catch (err) {
@@ -493,6 +658,110 @@ async function fetchStudies(){
   }
   state.loading = false;
   render();
+}
+
+async function fetchUsers(){
+  if(state.user.role !== "superadmin") return;
+  try {
+    const res = await fetch("/api/users", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-user-token": state.token },
+      body: JSON.stringify({ action: "listUsers" })
+    });
+    if(!res.ok) throw new Error("Fetch failed");
+    const data = await res.json();
+    state.users = data.users || [];
+  } catch (err) {
+    // keep last known list
+  }
+}
+
+function renderUserManagement(){
+  const card = document.createElement("div");
+  card.className = "card";
+  card.innerHTML = `<h2>Manage Users</h2>`;
+
+  const createSection = document.createElement("div");
+  createSection.style.cssText = "padding: 16px 0; border-bottom: 1px solid var(--border); margin-bottom: 16px;";
+  createSection.innerHTML = `<h3 style="font-size: 14px; margin: 0 0 12px; font-weight: 700;">Create New Account</h3>`;
+
+  const emailField = fieldInput("Email", "email", "", v => {}, "user@example.com");
+  createSection.appendChild(emailField);
+
+  const pwField = fieldInput("Password", "password", "", v => {}, "");
+  createSection.appendChild(pwField);
+
+  const roleField = document.createElement("div");
+  roleField.className = "field";
+  roleField.innerHTML = `<label>Role</label>`;
+  const roleSelect = document.createElement("select");
+  roleSelect.style.cssText = "width: 100%; padding: 11px 13px; border: 1px solid var(--border); border-radius: var(--r-sm); font-size: 15px; background: var(--paper); color: var(--ink);";
+  roleSelect.innerHTML = `<option value="user">User (creates own studies)</option><option value="lab_admin">Lab Admin (assigned to studies)</option><option value="superadmin">Superadmin</option>`;
+  roleField.appendChild(roleSelect);
+  createSection.appendChild(roleField);
+
+  const createBtn = document.createElement("button");
+  createBtn.className = "launchbtn";
+  createBtn.textContent = "Create Account";
+  createBtn.onclick = () => {
+    const email = emailField.querySelector("input").value;
+    const password = pwField.querySelector("input").value;
+    const role = roleSelect.value;
+    createUser(email, password, role);
+  };
+  createSection.appendChild(createBtn);
+  card.appendChild(createSection);
+
+  const usersSection = document.createElement("div");
+  usersSection.innerHTML = `<h3 style="font-size: 14px; margin: 0 0 12px; font-weight: 700;">Existing Users (${state.users.length})</h3>`;
+
+  if(state.users.length === 0){
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = "No users yet.";
+    usersSection.appendChild(empty);
+  } else {
+    const list = document.createElement("div");
+    list.className = "studylist";
+    state.users.forEach(u => {
+      const row = document.createElement("div");
+      row.className = "studyrow";
+      row.innerHTML = `
+        <div>
+          <div class="name">${escapeHtml(u.email)}</div>
+          <div class="meta">${u.role}</div>
+        </div>
+      `;
+      usersSection.appendChild(row);
+    });
+  }
+  card.appendChild(usersSection);
+
+  return card;
+}
+
+async function createUser(email, password, role){
+  email = email.trim().toLowerCase();
+  if(!email || password.length < 6){
+    alert("Valid email and password (6+ chars) required");
+    return;
+  }
+  try {
+    const res = await fetch("/api/users", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-user-token": state.token },
+      body: JSON.stringify({ action: "createUser", email, password, role })
+    });
+    const data = await res.json();
+    if(!res.ok){
+      alert(data.error || "Failed to create account");
+    } else {
+      alert(`Account created for ${email}`);
+      fetchUsers();
+    }
+  } catch (err) {
+    alert("Couldn't create account");
+  }
 }
 
 function renderStudyList(){
@@ -556,7 +825,10 @@ function renderStudyList(){
 
 async function loadStudyForEdit(id){
   try {
-    const res = await fetch(`/api/studies?id=${encodeURIComponent(id)}`);
+    const res = await fetch(`/api/studies?id=${encodeURIComponent(id)}`, {
+      headers: { "x-user-token": state.token }
+    });
+    if(!res.ok) throw new Error("Load failed");
     const data = await res.json();
     const s = data.study;
     state.form = {
@@ -579,10 +851,14 @@ async function deleteStudy(id, name){
   try {
     const res = await fetch("/api/studies", {
       method: "DELETE",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", "x-user-token": state.token },
       body: JSON.stringify({ id })
     });
-    if(!res.ok) throw new Error("Delete failed");
+    if(!res.ok) {
+      const data = await res.json();
+      alert(data.error || "Delete failed");
+      return;
+    }
     if(state.form.editingId === id){
       state.form = blankForm();
       state.reviewingStudy = false;
@@ -599,8 +875,7 @@ function escapeHtml(s){
   return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 }
 
-render();
-if(state.authed){ fetchStudies(); }
+init();
 </script>
 </body>
 </html>
