@@ -226,7 +226,8 @@ let state = {
   studyLoaded: STUDY_ID === "default",
   studyError: false,
   date: new Date().toISOString().slice(0,10),
-  teamId: Number(localStorage.getItem("tl_teamId_" + STUDY_ID)) || null,
+  teamId: localStorage.getItem("tl_teamId_" + STUDY_ID) || null,
+  teamIdInput: "",
   protocol: null,
   environment: null,
   objectKit: null,
@@ -418,8 +419,18 @@ function renderSetup(){
   const page1Done = state.teamId && state.protocol && state.objectKit && state.route.trim();
 
   if(!page1Done){
-    main.appendChild(rowTitle("Team ID"));
-    main.appendChild(tileGrid(TEAM_IDS.map(t=>({label:"Team "+t, sel: state.teamId===t, onClick:()=>{state.teamId=t; localStorage.setItem("tl_teamId_" + STUDY_ID, t); render();}}))));
+    main.appendChild(rowTitle("Team Name / ID"));
+    const teamInput = document.createElement("input");
+    teamInput.type = "text";
+    teamInput.placeholder = "e.g. Team A, Route 5, North Crew";
+    teamInput.value = state.teamId || "";
+    teamInput.oninput = (e) => {
+      state.teamId = e.target.value.trim() || null;
+      if(state.teamId) localStorage.setItem("tl_teamId_" + STUDY_ID, state.teamId);
+      else localStorage.removeItem("tl_teamId_" + STUDY_ID);
+      render();
+    };
+    main.appendChild(teamInput);
 
     main.appendChild(rowTitle("Protocol"));
     main.appendChild(tileGrid(PROTOCOLS.map(m=>({label:m, wide:true, sel: state.protocol===m, onClick:()=>{state.protocol=m; render();}}))));

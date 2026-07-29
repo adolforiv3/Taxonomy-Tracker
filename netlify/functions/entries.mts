@@ -68,6 +68,18 @@ export default async (req: Request, context: Context) => {
   if (req.method === "POST") {
     const body = await req.json();
     const items = Array.isArray(body.entries) ? body.entries : [];
+    const teamId = body.teamId;
+
+    // Require team ID to submit entries
+    if (!teamId) {
+      return Response.json({ error: "teamId is required" }, { status: 400 });
+    }
+
+    // All entries must be from the same team
+    if (items.some((item) => item.teamId !== teamId)) {
+      return Response.json({ error: "all entries must be from the same team" }, { status: 400 });
+    }
+
     for (const item of items) {
       const prefix = keyPrefix(item.studyId || null);
       const week = isoWeek(item.date);
@@ -78,11 +90,23 @@ export default async (req: Request, context: Context) => {
 
   if (req.method === "PATCH") {
     const body = await req.json();
+    const teamId = body.teamId;
+
+    // Require team ID for editing
+    if (!teamId) {
+      return Response.json({ error: "teamId is required" }, { status: 400 });
+    }
+
     const prefix = keyPrefix(body.studyId || null);
     const week = body.week || isoWeek(new Date().toISOString().slice(0, 10));
     const key = `${prefix}${week}/${body.id}`;
     const existing = await store.get(key, { type: "json" });
     if (!existing) return new Response("Not found", { status: 404 });
+
+    // Only team that submitted can edit
+    if (existing.teamId !== teamId) {
+      return Response.json({ error: "you can only edit entries from your team" }, { status: 403 });
+    }
 
     const allowedFields = ["signType", "calibrationSessionId", "captureSessionId", "sessionNotes"];
     const updates = body.updates || {};
@@ -98,9 +122,24 @@ export default async (req: Request, context: Context) => {
 
   if (req.method === "DELETE") {
     const body = await req.json();
+    const teamId = body.teamId;
+
+    // Require team ID for deletion
+    if (!teamId) {
+      return Response.json({ error: "teamId is required" }, { status: 400 });
+    }
+
     const prefix = keyPrefix(body.studyId || null);
     const week = body.week || isoWeek(new Date().toISOString().slice(0, 10));
-    await store.delete(`${prefix}${week}/${body.id}`);
+    const key = `${prefix}${week}/${body.id}`;
+
+    // Check ownership before deleting
+    const existing = await store.get(key, { type: "json" });
+    if (existing && existing.teamId !== teamId) {
+      return Response.json({ error: "you can only delete entries from your team" }, { status: 403 });
+    }
+
+    await store.delete(key);
     return Response.json({ ok: true });
   }
 
