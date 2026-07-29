@@ -353,7 +353,7 @@ function renderSetupEditBar(){
   const editBtn = document.createElement("button");
   editBtn.className = "navtoggle";
   editBtn.textContent = "Edit Runs →";
-  editBtn.onclick = () => { state.tab = "weekly"; render(); fetchWeekly(); startPolling(); };
+  editBtn.onclick = () => { window.location.href = `/admin`; };
   bar.appendChild(editBtn);
   return bar;
 }
@@ -376,7 +376,7 @@ function renderCtxBar(){
   navBtn.className = "navtoggle";
   if(state.tab === "log"){
     navBtn.textContent = "Edit Runs →";
-    navBtn.onclick = () => { state.tab = "weekly"; render(); fetchWeekly(); startPolling(); };
+    navBtn.onclick = () => { window.location.href = `/admin`; };
   } else {
     navBtn.textContent = "← Home";
     navBtn.onclick = () => { state.tab = "log"; stopPolling(); render(); };
