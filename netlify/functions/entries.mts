@@ -67,6 +67,25 @@ export default async (req: Request, context: Context) => {
     return Response.json({ ok: true, count: items.length });
   }
 
+  if (req.method === "PATCH") {
+    const body = await req.json();
+    const week = body.week || isoWeek(new Date().toISOString().slice(0, 10));
+    const key = `${week}/${body.id}`;
+    const existing = await store.get(key, { type: "json" });
+    if (!existing) return new Response("Not found", { status: 404 });
+
+    const allowedFields = ["signType", "note", "calibrationSessionId", "captureSessionId", "sessionNotes"];
+    const updates = body.updates || {};
+    const merged = { ...existing };
+    for (const field of allowedFields) {
+      if (field in updates) merged[field] = updates[field];
+    }
+    merged.editedAt = new Date().toISOString();
+
+    await store.setJSON(key, merged);
+    return Response.json({ ok: true, entry: merged });
+  }
+
   if (req.method === "DELETE") {
     const body = await req.json();
     const week = body.week || isoWeek(new Date().toISOString().slice(0, 10));

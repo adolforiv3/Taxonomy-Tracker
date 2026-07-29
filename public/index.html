@@ -187,6 +187,8 @@ let state = {
   reviewingFinish: false, // showing the calibration/capture ID + notes step before finalizing a round
   submitting: false,
   weekly: { week: isoWeek(new Date().toISOString().slice(0,10)), entries: [], loading: false },
+  editingId: null,
+  editDraft: null,
   toast: null
 };
 
@@ -571,6 +573,43 @@ async function deleteWeeklyEntry(entry){
   }
 }
 
+function startEdit(entry){
+  state.editingId = entry.id;
+  state.editDraft = {
+    signType: entry.signType,
+    note: entry.note || "",
+    calibrationSessionId: entry.calibrationSessionId || "",
+    captureSessionId: entry.captureSessionId || "",
+    sessionNotes: entry.sessionNotes || ""
+  };
+  render();
+}
+
+function cancelEdit(){
+  state.editingId = null;
+  state.editDraft = null;
+  render();
+}
+
+async function saveEdit(entry){
+  try {
+    const res = await fetch("/api/entries", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ week: state.weekly.week, id: entry.id, updates: state.editDraft })
+    });
+    if(!res.ok) throw new Error("Save failed");
+    const { entry: updated } = await res.json();
+    state.weekly.entries = state.weekly.entries.map(e => e.id === entry.id ? updated : e);
+    state.editingId = null;
+    state.editDraft = null;
+    showToast("Entry updated");
+    render();
+  } catch (err) {
+    showToast("Couldn't save edit — try again");
+  }
+}
+
 function renderWeekly(){
   const main = document.createElement("main");
 
@@ -603,27 +642,113 @@ function renderWeekly(){
   state.weekly.entries.forEach(entry => {
     const el = document.createElement("div");
     el.className = "entry";
+
+    if(state.editingId === entry.id){
+      el.appendChild(renderEditForm(entry));
+      main.appendChild(el);
+      return;
+    }
+
     const time = new Date(entry.timestamp).toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
+    const editedTag = entry.editedAt ? ` · edited ${new Date(entry.editedAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}` : "";
     el.innerHTML = `
       <div class="entry-top">
         <div>
           <div class="entry-taxonomy"><span class="teampill">Team ${entry.teamId}</span>${entry.signType}</div>
-          <div class="entry-meta">${time} · ${entry.protocol} · ${entry.environment} · Kit ${entry.objectKit} · Rt ${escapeHtml(entry.route)}</div>
+          <div class="entry-meta">${time}${editedTag} · ${entry.protocol} · ${entry.environment} · Kit ${entry.objectKit} · Rt ${escapeHtml(entry.route)}</div>
           <div class="entry-meta">Cal ${escapeHtml(entry.calibrationSessionId||"")} · Cap ${escapeHtml(entry.captureSessionId||"")}</div>
           ${entry.note ? `<div class="entry-note">"${escapeHtml(entry.note)}"</div>` : ""}
           ${entry.sessionNotes ? `<div class="entry-note">Session: "${escapeHtml(entry.sessionNotes)}"</div>` : ""}
         </div>
       </div>
     `;
-    const delBtn = document.createElement("button");
-    delBtn.className = "delbtn";
-    delBtn.textContent = "Delete";
-    delBtn.onclick = () => deleteWeeklyEntry(entry);
-    el.querySelector(".entry-top").appendChild(delBtn);
+
+    if(entry.teamId === state.teamId){
+      const btnRow = document.createElement("div");
+      btnRow.style.cssText = "display:flex;gap:8px;margin-top:10px;";
+      const editBtn = document.createElement("button");
+      editBtn.className = "backbtn";
+      editBtn.style.cssText = "margin-bottom:0;flex:1;";
+      editBtn.textContent = "Edit";
+      editBtn.onclick = () => startEdit(entry);
+      const delBtn = document.createElement("button");
+      delBtn.className = "delbtn";
+      delBtn.style.flex = "1";
+      delBtn.textContent = "Delete";
+      delBtn.onclick = () => deleteWeeklyEntry(entry);
+      btnRow.appendChild(editBtn);
+      btnRow.appendChild(delBtn);
+      el.appendChild(btnRow);
+    }
+
     main.appendChild(el);
   });
 
+  const footer = document.createElement("div");
+  footer.style.cssText = "text-align:center;margin-top:24px;";
+  footer.innerHTML = `<a href="/admin.html" style="color:var(--muted);font-size:12px;text-decoration:underline;">Team lead? Open admin dashboard →</a>`;
+  main.appendChild(footer);
+
   return main;
+}
+
+function renderEditForm(entry){
+  const wrap = document.createElement("div");
+
+  wrap.appendChild(rowTitle("Sign Type"));
+  const select = document.createElement("select");
+  SIGN_TYPES.forEach(s => {
+    const opt = document.createElement("option");
+    opt.value = s; opt.textContent = `${SIGN_EMOJI[s]} ${s}`;
+    if(s === state.editDraft.signType) opt.selected = true;
+    select.appendChild(opt);
+  });
+  select.onchange = (e) => { state.editDraft.signType = e.target.value; };
+  wrap.appendChild(select);
+
+  wrap.appendChild(rowTitle("Note"));
+  const noteInput = document.createElement("textarea");
+  noteInput.value = state.editDraft.note;
+  noteInput.oninput = (e) => { state.editDraft.note = e.target.value; };
+  wrap.appendChild(noteInput);
+
+  wrap.appendChild(rowTitle("Calibration Session ID"));
+  const calInput = document.createElement("input");
+  calInput.type = "text";
+  calInput.value = state.editDraft.calibrationSessionId;
+  calInput.oninput = (e) => { state.editDraft.calibrationSessionId = e.target.value; };
+  wrap.appendChild(calInput);
+
+  wrap.appendChild(rowTitle("Capture Session ID"));
+  const capInput = document.createElement("input");
+  capInput.type = "text";
+  capInput.value = state.editDraft.captureSessionId;
+  capInput.oninput = (e) => { state.editDraft.captureSessionId = e.target.value; };
+  wrap.appendChild(capInput);
+
+  wrap.appendChild(rowTitle("Session Notes"));
+  const sessionNotesInput = document.createElement("textarea");
+  sessionNotesInput.value = state.editDraft.sessionNotes;
+  sessionNotesInput.oninput = (e) => { state.editDraft.sessionNotes = e.target.value; };
+  wrap.appendChild(sessionNotesInput);
+
+  const btnRow = document.createElement("div");
+  btnRow.style.cssText = "display:flex;gap:8px;margin-top:14px;";
+  const saveBtn = document.createElement("button");
+  saveBtn.className = "logbtn";
+  saveBtn.style.cssText = "flex:1;padding:12px;";
+  saveBtn.textContent = "Save";
+  saveBtn.onclick = () => saveEdit(entry);
+  const cancelBtn = document.createElement("button");
+  cancelBtn.className = "backbtn";
+  cancelBtn.style.cssText = "flex:1;margin-bottom:0;";
+  cancelBtn.textContent = "Cancel";
+  cancelBtn.onclick = cancelEdit;
+  btnRow.appendChild(saveBtn);
+  btnRow.appendChild(cancelBtn);
+  wrap.appendChild(btnRow);
+
+  return wrap;
 }
 
 function escapeHtml(s){

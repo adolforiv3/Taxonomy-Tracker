@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Taxonomy Logger — Admin</title>
+<style>
+  :root{
+    --bg:#eef0f3; --surface:#ffffff; --border:#dcdfe4;
+    --text:#1b2430; --muted:#67707c; --accent:#0f2647; --accent2:#a8813c;
+    --danger:#b3392f; --good:#1f6f4d;
+    --shadow-sm:0 1px 2px rgba(15,38,71,.05);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);min-height:100%;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;-webkit-font-smoothing:antialiased;}
+
+  header{padding:18px 28px;background:var(--accent);display:flex;align-items:center;gap:12px;}
+  header .brandmark{width:8px;height:8px;border-radius:2px;background:var(--accent2);transform:rotate(45deg);flex-shrink:0;}
+  header h1{font-size:15px;margin:0;letter-spacing:2px;font-weight:700;color:#fff;}
+  header .sub{font-size:12px;color:#cfe0ff;margin-left:6px;}
+  header .livepill{margin-left:auto;font-size:10.5px;font-weight:700;letter-spacing:.6px;color:#cfe0ff;display:flex;align-items:center;gap:6px;}
+  header .livedot{width:7px;height:7px;border-radius:50%;background:#3ddc84;box-shadow:0 0 0 3px rgba(61,220,132,.25);}
+
+  main{max-width:1200px;margin:0 auto;padding:24px 28px 60px;}
+
+  /* Passcode gate */
+  .gate{max-width:360px;margin:80px auto;background:var(--surface);border:1px solid var(--border);border-radius:14px;
+    padding:28px;box-shadow:0 8px 30px rgba(15,38,71,.08);text-align:center;}
+  .gate h2{font-size:15px;margin:0 0 6px;color:var(--text);}
+  .gate p{font-size:13px;color:var(--muted);margin:0 0 18px;}
+  .gate input{width:100%;padding:12px;border:1px solid var(--border);border-radius:9px;font-size:16px;margin-bottom:12px;
+    box-shadow:var(--shadow-sm);text-align:center;letter-spacing:2px;}
+  .gate button{width:100%;padding:13px;border:none;border-radius:10px;background:var(--accent);color:#fff;
+    font-weight:700;font-size:14px;}
+  .gate .err{color:var(--danger);font-size:12.5px;margin-top:10px;min-height:16px;}
+
+  .topbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:20px;}
+  .weeknav{display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--border);border-radius:10px;
+    padding:8px 14px;box-shadow:var(--shadow-sm);}
+  .weeknav button{background:transparent;border:none;color:var(--accent);font-weight:700;font-size:14px;padding:2px 6px;}
+  .weeknav .weeklabel{font-size:13.5px;font-weight:700;min-width:110px;text-align:center;}
+  .refreshbtn{background:var(--surface);border:1px solid var(--border);color:var(--accent);border-radius:9px;
+    padding:9px 14px;font-size:12.5px;font-weight:700;box-shadow:var(--shadow-sm);}
+  .updated{font-size:12px;color:var(--muted);}
+  .exportbtn{margin-left:auto;background:var(--accent2);color:#fff;border:none;border-radius:9px;padding:10px 18px;
+    font-weight:700;font-size:13px;box-shadow:0 6px 16px rgba(168,129,60,.25);}
+
+  .statgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:24px;}
+  .statcard{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;box-shadow:var(--shadow-sm);}
+  .statcard .num{font-size:26px;font-weight:800;color:var(--accent);font-variant-numeric:tabular-nums;}
+  .statcard .lbl{font-size:11.5px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-top:4px;font-weight:700;}
+
+  .daytabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px;}
+  .daytab{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:8px 16px;font-size:13px;
+    font-weight:600;color:var(--muted);box-shadow:var(--shadow-sm);}
+  .daytab.active{background:var(--accent);color:#fff;border-color:var(--accent);}
+  .daytab .cnt{opacity:.75;margin-left:4px;}
+
+  table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:12px;
+    overflow:hidden;box-shadow:var(--shadow-sm);}
+  thead th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);
+    padding:12px 14px;border-bottom:1px solid var(--border);background:#f7f8fa;white-space:nowrap;}
+  tbody td{padding:12px 14px;border-bottom:1px solid var(--border);font-size:13.5px;vertical-align:top;}
+  tbody tr:last-child td{border-bottom:none;}
+  tbody tr:hover{background:#fafbfc;}
+  .tablewrap{overflow-x:auto;}
+  .teampill{display:inline-block;background:#eef2f8;color:var(--accent);border-radius:6px;padding:2px 8px;
+    font-size:11px;font-weight:700;}
+  .note{font-size:12px;color:var(--muted);font-style:italic;margin-top:2px;}
+  .rowbtn{background:transparent;border:1px solid var(--border);border-radius:7px;padding:5px 10px;font-size:11.5px;
+    font-weight:700;margin-right:6px;cursor:pointer;}
+  .rowbtn.edit{color:var(--accent);}
+  .rowbtn.del{color:var(--danger);}
+  .empty{text-align:center;padding:60px 20px;color:var(--muted);font-size:14px;}
+
+  .editrow textarea, .editrow input, .editrow select{width:100%;padding:6px 8px;border:1px solid var(--border);
+    border-radius:6px;font-size:12.5px;font-family:inherit;}
+  .editrow textarea{min-height:40px;resize:vertical;}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+const SIGN_EMOJI = {
+  "Construction Sign": "🚧", "Crosswalk": "🦓", "Cycling": "🚴", "Do Not Enter": "⛔",
+  "End Restrictions": "🔚", "No Cycling": "🚳", "No Pedestrian Sign": "🚷", "One Way (left)": "⬅️",
+  "One Way (right)": "➡️", "Parking Area": "🅿️", "Pedestrian Crossing Sign": "🚸",
+  "Pedestrian Zone Ends Sign": "🏁", "Pedestrian Zone Sign": "🚶", "Railroad Crossing Sign": "🚆",
+  "School Zone": "🏫", "Stop Sign": "🛑", "Street Name Sign": "🪧", "Traffic Light": "🚦",
+  "Trailhead Sign": "🥾", "Turn Restrictions": "↩️"
+};
+const SIGN_TYPES = Object.keys(SIGN_EMOJI).sort((a,b) => a.localeCompare(b));
+
+function isoWeek(dateStr){
+  const d = new Date(dateStr + "T00:00:00Z");
+  const target = new Date(d.valueOf());
+  const dayNr = (d.getUTCDay() + 6) % 7;
+  target.setUTCDate(target.getUTCDate() - dayNr + 3);
+  const firstThursday = target.valueOf();
+  target.setUTCMonth(0, 1);
+  if(target.getUTCDay() !== 4){ target.setUTCMonth(0, 1 + ((4 - target.getUTCDay() + 7) % 7)); }
+  const week = 1 + Math.ceil((firstThursday - target.valueOf()) / (7*24*3600*1000));
+  return `${d.getUTCFullYear()}-W${String(week).padStart(2,"0")}`;
+}
+function shiftWeek(week, delta){
+  const [y, w] = week.split("-W").map(Number);
+  const jan4 = new Date(Date.UTC(y,0,4));
+  const monday = new Date(jan4.valueOf() - ((jan4.getUTCDay()+6)%7)*86400000);
+  const target = new Date(monday.valueOf() + (w-1+delta)*7*86400000);
+  return isoWeek(target.toISOString().slice(0,10));
+}
+
+let state = {
+  authed: sessionStorage.getItem("tl_admin_ok") === "1",
+  passcodeErr: "",
+  week: isoWeek(new Date().toISOString().slice(0,10)),
+  entries: [],
+  loading: false,
+  lastUpdated: null,
+  dayFilter: "all",
+  editingId: null,
+  editDraft: null
+};
+let pollTimer = null;
+
+const app = document.getElementById("app");
+
+function render(){
+  app.innerHTML = "";
+  app.appendChild(state.authed ? renderDashboard() : renderGate());
+}
+
+function renderGate(){
+  const wrap = document.createElement("div");
+  wrap.innerHTML = `
+    <header><span class="brandmark"></span><h1>TAXONOMY LOGGER</h1><span class="sub">Admin</span></header>
+    <div class="gate">
+      <h2>Team Lead Access</h2>
+      <p>Enter the shared admin passcode to view the live weekly document.</p>
+      <input id="passcodeInput" type="password" placeholder="Passcode" autocomplete="off" />
+      <button id="unlockBtn">Unlock</button>
+      <div class="err">${state.passcodeErr}</div>
+    </div>
+  `;
+  wrap.querySelector("#unlockBtn").onclick = tryUnlock;
+  wrap.querySelector("#passcodeInput").addEventListener("keydown", (e) => { if(e.key === "Enter") tryUnlock(); });
+  setTimeout(() => wrap.querySelector("#passcodeInput")?.focus(), 0);
+  return wrap;
+}
+
+async function tryUnlock(){
+  const input = document.getElementById("passcodeInput");
+  const passcode = input.value;
+  try {
+    const res = await fetch("/api/admin-auth", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ passcode })
+    });
+    if(res.ok){
+      sessionStorage.setItem("tl_admin_ok", "1");
+      state.authed = true;
+      state.passcodeErr = "";
+      render();
+      fetchEntries();
+      startPolling();
+    } else {
+      state.passcodeErr = "Incorrect passcode";
+      render();
+    }
+  } catch (err) {
+    state.passcodeErr = "Couldn't reach server — try again";
+    render();
+  }
+}
+
+function renderDashboard(){
+  const wrap = document.createElement("div");
+
+  const header = document.createElement("header");
+  header.innerHTML = `<span class="brandmark"></span><h1>TAXONOMY LOGGER</h1><span class="sub">Admin</span>
+    <span class="livepill"><span class="livedot"></span>LIVE</span>`;
+  wrap.appendChild(header);
+
+  const main = document.createElement("main");
+
+  const topbar = document.createElement("div");
+  topbar.className = "topbar";
+  topbar.innerHTML = `
+    <div class="weeknav">
+      <button id="prevWeek">‹</button>
+      <span class="weeklabel">${state.week}</span>
+      <button id="nextWeek">›</button>
+    </div>
+    <button class="refreshbtn" id="refreshBtn">${state.loading ? "Refreshing…" : "↻ Refresh"}</button>
+    <span class="updated">${state.lastUpdated ? "Updated " + state.lastUpdated.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : ""}</span>
+    <button class="exportbtn" id="exportBtn">⬇ Download Weekly CSV</button>
+  `;
+  main.appendChild(topbar);
+
+  // Stats
+  const byTeam = {};
+  const byDay = {};
+  state.entries.forEach(e => {
+    byTeam[e.teamId] = (byTeam[e.teamId] || 0) + 1;
+    byDay[e.date] = (byDay[e.date] || 0) + 1;
+  });
+  const days = Object.keys(byDay).sort();
+
+  const statGrid = document.createElement("div");
+  statGrid.className = "statgrid";
+  statGrid.innerHTML = `
+    <div class="statcard"><div class="num">${state.entries.length}</div><div class="lbl">Total This Week</div></div>
+    ${[1,2,3,4,5,6].map(t => `<div class="statcard"><div class="num">${byTeam[t]||0}</div><div class="lbl">Team ${t}</div></div>`).join("")}
+  `;
+  main.appendChild(statGrid);
+
+  // Day filter tabs
+  if(days.length > 0){
+    const dayTabs = document.createElement("div");
+    dayTabs.className = "daytabs";
+    const allTab = document.createElement("button");
+    allTab.className = "daytab" + (state.dayFilter === "all" ? " active" : "");
+    allTab.innerHTML = `All Days <span class="cnt">${state.entries.length}</span>`;
+    allTab.onclick = () => { state.dayFilter = "all"; render(); };
+    dayTabs.appendChild(allTab);
+    days.forEach(d => {
+      const tab = document.createElement("button");
+      tab.className = "daytab" + (state.dayFilter === d ? " active" : "");
+      const label = new Date(d + "T00:00:00").toLocaleDateString([], {weekday:'short', month:'short', day:'numeric'});
+      tab.innerHTML = `${label} <span class="cnt">${byDay[d]}</span>`;
+      tab.onclick = () => { state.dayFilter = d; render(); };
+      dayTabs.appendChild(tab);
+    });
+    main.appendChild(dayTabs);
+  }
+
+  const visible = state.entries
+    .filter(e => state.dayFilter === "all" || e.date === state.dayFilter)
+    .sort((a,b) => String(b.timestamp).localeCompare(String(a.timestamp)));
+
+  if(visible.length === 0){
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = state.loading ? "Loading…" : "No entries for this selection.";
+    main.appendChild(empty);
+  } else {
+    main.appendChild(renderTable(visible));
+  }
+
+  wrap.appendChild(main);
+
+  header.querySelector(".sub"); // no-op to keep header ref alive
+  topbar.querySelector("#prevWeek").onclick = () => { state.week = shiftWeek(state.week, -1); state.dayFilter = "all"; render(); fetchEntries(); };
+  topbar.querySelector("#nextWeek").onclick = () => { state.week = shiftWeek(state.week, 1); state.dayFilter = "all"; render(); fetchEntries(); };
+  topbar.querySelector("#refreshBtn").onclick = fetchEntries;
+  topbar.querySelector("#exportBtn").onclick = () => {
+    window.location.href = `/api/entries?week=${encodeURIComponent(state.week)}&format=csv`;
+  };
+
+  return wrap;
+}
+
+function renderTable(entries){
+  const wrap = document.createElement("div");
+  wrap.className = "tablewrap";
+  const table = document.createElement("table");
+  table.innerHTML = `
+    <thead><tr>
+      <th>Time</th><th>Team</th><th>Sign</th><th>Protocol</th><th>Environment</th><th>Kit</th><th>Route</th>
+      <th>Calibration</th><th>Capture</th><th>Notes</th><th></th>
+    </tr></thead>
+    <tbody></tbody>
+  `;
+  const tbody = table.querySelector("tbody");
+
+  entries.forEach(entry => {
+    const tr = document.createElement("tr");
+
+    if(state.editingId === entry.id){
+      tr.className = "editrow";
+      tr.appendChild(td(new Date(entry.timestamp).toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})));
+      tr.appendChild(td(`<span class="teampill">Team ${entry.teamId}</span>`));
+
+      const signTd = document.createElement("td");
+      const select = document.createElement("select");
+      SIGN_TYPES.forEach(s => {
+        const opt = document.createElement("option");
+        opt.value = s; opt.textContent = `${SIGN_EMOJI[s]} ${s}`;
+        if(s === state.editDraft.signType) opt.selected = true;
+        select.appendChild(opt);
+      });
+      select.onchange = (e) => { state.editDraft.signType = e.target.value; };
+      signTd.appendChild(select);
+      tr.appendChild(signTd);
+
+      tr.appendChild(td(entry.protocol));
+      tr.appendChild(td(entry.environment));
+      tr.appendChild(td("Kit " + entry.objectKit));
+      tr.appendChild(td(escapeHtml(entry.route)));
+
+      tr.appendChild(inputTd(state.editDraft.calibrationSessionId, v => state.editDraft.calibrationSessionId = v));
+      tr.appendChild(inputTd(state.editDraft.captureSessionId, v => state.editDraft.captureSessionId = v));
+
+      const notesTd = document.createElement("td");
+      const noteArea = document.createElement("textarea");
+      noteArea.value = state.editDraft.note;
+      noteArea.placeholder = "Note";
+      noteArea.oninput = (e) => { state.editDraft.note = e.target.value; };
+      const sessionArea = document.createElement("textarea");
+      sessionArea.value = state.editDraft.sessionNotes;
+      sessionArea.placeholder = "Session notes";
+      sessionArea.style.marginTop = "4px";
+      sessionArea.oninput = (e) => { state.editDraft.sessionNotes = e.target.value; };
+      notesTd.appendChild(noteArea);
+      notesTd.appendChild(sessionArea);
+      tr.appendChild(notesTd);
+
+      const actionTd = document.createElement("td");
+      const saveBtn = document.createElement("button");
+      saveBtn.className = "rowbtn edit";
+      saveBtn.textContent = "Save";
+      saveBtn.onclick = () => saveEdit(entry);
+      const cancelBtn = document.createElement("button");
+      cancelBtn.className = "rowbtn";
+      cancelBtn.textContent = "Cancel";
+      cancelBtn.onclick = () => { state.editingId = null; state.editDraft = null; render(); };
+      actionTd.appendChild(saveBtn);
+      actionTd.appendChild(cancelBtn);
+      tr.appendChild(actionTd);
+
+      tbody.appendChild(tr);
+      return;
+    }
+
+    tr.appendChild(td(new Date(entry.timestamp).toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})));
+    tr.appendChild(td(`<span class="teampill">Team ${entry.teamId}</span>`));
+    tr.appendChild(td(`${SIGN_EMOJI[entry.signType]||""} ${escapeHtml(entry.signType)}`));
+    tr.appendChild(td(entry.protocol));
+    tr.appendChild(td(entry.environment));
+    tr.appendChild(td("Kit " + entry.objectKit));
+    tr.appendChild(td(escapeHtml(entry.route)));
+    tr.appendChild(td(escapeHtml(entry.calibrationSessionId||"")));
+    tr.appendChild(td(escapeHtml(entry.captureSessionId||"")));
+
+    const notesTd = document.createElement("td");
+    let notesHtml = "";
+    if(entry.note) notesHtml += `<div class="note">"${escapeHtml(entry.note)}"</div>`;
+    if(entry.sessionNotes) notesHtml += `<div class="note">Session: "${escapeHtml(entry.sessionNotes)}"</div>`;
+    if(entry.editedAt) notesHtml += `<div class="note">Edited ${new Date(entry.editedAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>`;
+    notesTd.innerHTML = notesHtml;
+    tr.appendChild(notesTd);
+
+    const actionTd = document.createElement("td");
+    const editBtn = document.createElement("button");
+    editBtn.className = "rowbtn edit";
+    editBtn.textContent = "Edit";
+    editBtn.onclick = () => {
+      state.editingId = entry.id;
+      state.editDraft = {
+        signType: entry.signType, note: entry.note || "",
+        calibrationSessionId: entry.calibrationSessionId || "",
+        captureSessionId: entry.captureSessionId || "",
+        sessionNotes: entry.sessionNotes || ""
+      };
+      render();
+    };
+    const delBtn = document.createElement("button");
+    delBtn.className = "rowbtn del";
+    delBtn.textContent = "Delete";
+    delBtn.onclick = () => deleteEntry(entry);
+    actionTd.appendChild(editBtn);
+    actionTd.appendChild(delBtn);
+    tr.appendChild(actionTd);
+
+    tbody.appendChild(tr);
+  });
+
+  wrap.appendChild(table);
+  return wrap;
+}
+
+function td(html){
+  const cell = document.createElement("td");
+  cell.innerHTML = html;
+  return cell;
+}
+function inputTd(value, onChange){
+  const cell = document.createElement("td");
+  const input = document.createElement("input");
+  input.type = "text";
+  input.value = value;
+  input.oninput = (e) => onChange(e.target.value);
+  cell.appendChild(input);
+  return cell;
+}
+
+async function fetchEntries(){
+  state.loading = true;
+  render();
+  try {
+    const res = await fetch(`/api/entries?week=${encodeURIComponent(state.week)}`);
+    const data = await res.json();
+    state.entries = data.entries || [];
+    state.lastUpdated = new Date();
+  } catch (err) {
+    // silent fail, keep last known data
+  }
+  state.loading = false;
+  render();
+}
+
+async function deleteEntry(entry){
+  if(!confirm(`Delete this ${entry.signType} entry from Team ${entry.teamId}?`)) return;
+  try {
+    await fetch("/api/entries", {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ week: state.week, id: entry.id })
+    });
+    state.entries = state.entries.filter(e => e.id !== entry.id);
+    render();
+  } catch (err) {
+    alert("Couldn't delete — try again");
+  }
+}
+
+async function saveEdit(entry){
+  try {
+    const res = await fetch("/api/entries", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ week: state.week, id: entry.id, updates: state.editDraft })
+    });
+    if(!res.ok) throw new Error("Save failed");
+    const { entry: updated } = await res.json();
+    state.entries = state.entries.map(e => e.id === entry.id ? updated : e);
+    state.editingId = null;
+    state.editDraft = null;
+    render();
+  } catch (err) {
+    alert("Couldn't save — try again");
+  }
+}
+
+function startPolling(){
+  if(pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(fetchEntries, 15000);
+}
+
+function escapeHtml(s){
+  return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+render();
+if(state.authed){ fetchEntries(); startPolling(); }
+</script>
+</body>
+</html>
