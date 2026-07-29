@@ -95,29 +95,21 @@
 <div id="app"></div>
 
 <script>
-const DEFAULT_PROTOCOLS = ["Walk", "Exploration", "Fast-Walk"];
-const DEFAULT_ENVIRONMENTS = [
-  "Urban Street", "Near Restaurant", "Popular Landmark", "Near Corporate",
-  "Residential", "Parking Garages and Parking Lots", "City Parks", "Gas Station"
-];
-const DEFAULT_SIGN_TYPES = [
-  {name:"Construction Sign", emoji:"🚧"}, {name:"Crosswalk", emoji:"🦓"}, {name:"Cycling", emoji:"🚴"},
-  {name:"Do Not Enter", emoji:"⛔"}, {name:"End Restrictions", emoji:"🔚"}, {name:"No Cycling", emoji:"🚳"},
-  {name:"No Pedestrian Sign", emoji:"🚷"}, {name:"One Way (left)", emoji:"⬅️"}, {name:"One Way (right)", emoji:"➡️"},
-  {name:"Parking Area", emoji:"🅿️"}, {name:"Pedestrian Crossing Sign", emoji:"🚸"}, {name:"Pedestrian Zone Ends Sign", emoji:"🏁"},
-  {name:"Pedestrian Zone Sign", emoji:"🚶"}, {name:"Railroad Crossing Sign", emoji:"🚆"}, {name:"School Zone", emoji:"🏫"},
-  {name:"Stop Sign", emoji:"🛑"}, {name:"Street Name Sign", emoji:"🪧"}, {name:"Traffic Light", emoji:"🚦"},
-  {name:"Trailhead Sign", emoji:"🥾"}, {name:"Turn Restrictions", emoji:"↩️"}
-];
+// Shown only as inspiration text near each list editor — the form itself
+// starts empty so the DRI adds exactly what their study needs instead of
+// deleting a pre-filled list every time.
+const EXAMPLE_PROTOCOLS = "Walk, Exploration, Fast-Walk";
+const EXAMPLE_ENVIRONMENTS = "Urban Street, Near Restaurant, Popular Landmark, Near Corporate, Residential, Parking Garages and Parking Lots, City Parks, Gas Station";
+const EXAMPLE_SIGN_TYPES = "🚧 Construction Sign, 🦓 Crosswalk, 🛑 Stop Sign, 🚦 Traffic Light, 🅿️ Parking Area, 🚶 Pedestrian Zone Sign …";
 
 function blankForm(){
   return {
     editingId: null,
     name: "", dateStart: "", dateEnd: "", passcode: "", teamCount: 6,
-    protocols: [...DEFAULT_PROTOCOLS],
-    environments: [...DEFAULT_ENVIRONMENTS],
+    protocols: [],
+    environments: [],
     objectKitCount: 10,
-    signTypes: DEFAULT_SIGN_TYPES.map(s => ({...s}))
+    signTypes: []
   };
 }
 
@@ -128,6 +120,7 @@ let state = {
   loading: false,
   saving: false,
   launchResult: null,
+  reviewingStudy: false,
   form: blankForm()
 };
 
@@ -185,8 +178,12 @@ function renderDashboard(){
   wrap.innerHTML = `<header><h1>Taxonomy Logger</h1><span class="sub">Study Builder</span></header>`;
 
   const main = document.createElement("main");
-  main.appendChild(renderForm());
-  main.appendChild(renderStudyList());
+  if(state.reviewingStudy){
+    main.appendChild(renderStudyReview());
+  } else {
+    main.appendChild(renderForm());
+    main.appendChild(renderStudyList());
+  }
   wrap.appendChild(main);
   return wrap;
 }
@@ -214,15 +211,22 @@ function renderForm(){
 
   card.appendChild(fieldInput("Object Kit Count", "number", f.objectKitCount, v => f.objectKitCount = Number(v) || 1));
 
-  card.appendChild(listEditor("Protocols", f.protocols, () => f.protocols.push(""), (i) => f.protocols.splice(i,1)));
-  card.appendChild(listEditor("Environment Types", f.environments, () => f.environments.push(""), (i) => f.environments.splice(i,1)));
+  card.appendChild(listEditor("Protocols", f.protocols, () => f.protocols.push(""), (i) => f.protocols.splice(i,1), EXAMPLE_PROTOCOLS));
+  card.appendChild(listEditor("Environment Types", f.environments, () => f.environments.push(""), (i) => f.environments.splice(i,1), EXAMPLE_ENVIRONMENTS));
   card.appendChild(signTypeEditor(f));
 
   const launchBtn = document.createElement("button");
   launchBtn.className = "launchbtn";
-  launchBtn.textContent = state.saving ? "Saving…" : (f.editingId ? "Save Changes" : "✓ Launch Study");
-  launchBtn.disabled = state.saving;
-  launchBtn.onclick = saveStudy;
+  launchBtn.textContent = "Review Study →";
+  launchBtn.onclick = () => {
+    const passcodeRequired = !f.editingId;
+    if(!f.name.trim() || (passcodeRequired && !f.passcode.trim())){
+      alert("Study Name and Admin Passcode are required.");
+      return;
+    }
+    state.reviewingStudy = true;
+    render();
+  };
   card.appendChild(launchBtn);
 
   if(f.editingId){
@@ -230,7 +234,7 @@ function renderForm(){
     cancelBtn.className = "launchbtn";
     cancelBtn.style.cssText = "background:transparent;color:var(--ink-soft);border:1px solid var(--border);margin-top:8px;";
     cancelBtn.textContent = "Cancel Edit";
-    cancelBtn.onclick = () => { state.form = blankForm(); state.launchResult = null; render(); };
+    cancelBtn.onclick = () => { state.form = blankForm(); state.launchResult = null; state.reviewingStudy = false; render(); };
     card.appendChild(cancelBtn);
   }
 
@@ -267,12 +271,19 @@ function fieldInput(label, type, value, onChange, placeholder){
   return wrap;
 }
 
-function listEditor(label, arr, onAdd, onRemove){
+function listEditor(label, arr, onAdd, onRemove, exampleText){
   const wrap = document.createElement("div");
   wrap.className = "field";
   const lbl = document.createElement("label");
   lbl.textContent = `${label} (${arr.length})`;
   wrap.appendChild(lbl);
+
+  if(arr.length === 0 && exampleText){
+    const hint = document.createElement("div");
+    hint.style.cssText = "font-size:12px;color:var(--ink-soft);margin-bottom:8px;";
+    hint.textContent = `Examples: ${exampleText}`;
+    wrap.appendChild(hint);
+  }
 
   arr.forEach((val, i) => {
     const row = document.createElement("div");
@@ -306,6 +317,13 @@ function signTypeEditor(f){
   lbl.textContent = `Sign Types / Taxonomy (${f.signTypes.length})`;
   wrap.appendChild(lbl);
 
+  if(f.signTypes.length === 0){
+    const hint = document.createElement("div");
+    hint.style.cssText = "font-size:12px;color:var(--ink-soft);margin-bottom:8px;";
+    hint.textContent = `Examples: ${EXAMPLE_SIGN_TYPES}`;
+    wrap.appendChild(hint);
+  }
+
   f.signTypes.forEach((s, i) => {
     const row = document.createElement("div");
     row.className = "listrow";
@@ -336,6 +354,56 @@ function signTypeEditor(f){
   wrap.appendChild(addBtn);
 
   return wrap;
+}
+
+function renderStudyReview(){
+  const f = state.form;
+  const card = document.createElement("div");
+  card.className = "card";
+  card.innerHTML = `<h2>Review Before ${f.editingId ? "Saving Changes" : "Launching"}</h2>`;
+
+  const rows = [
+    ["Study Name", f.name || "—"],
+    ["Dates", (f.dateStart || f.dateEnd) ? `${f.dateStart || "?"} – ${f.dateEnd || "?"}` : "Not set"],
+    ["Admin Passcode", f.passcode ? "•".repeat(Math.max(f.passcode.length, 6)) : (f.editingId ? "Unchanged" : "—")],
+    ["Team Count", `${f.teamCount} team${f.teamCount===1?"":"s"}`],
+    ["Object Kit Count", `${f.objectKitCount} kit${f.objectKitCount===1?"":"s"}`],
+    ["Protocols", f.protocols.filter(p => p.trim()).join(", ") || "None added"],
+    ["Environment Types", f.environments.filter(e => e.trim()).join(", ") || "None added"]
+  ];
+
+  rows.forEach(([label, value]) => {
+    const row = document.createElement("div");
+    row.className = "field";
+    row.innerHTML = `<label>${label}</label><div style="font-size:14.5px;">${escapeHtml(value)}</div>`;
+    card.appendChild(row);
+  });
+
+  const signRow = document.createElement("div");
+  signRow.className = "field";
+  const validSigns = f.signTypes.filter(s => s.name.trim());
+  signRow.innerHTML = `<label>Sign Types / Taxonomy (${validSigns.length})</label>
+    <div style="font-size:14.5px;line-height:1.6;">${validSigns.length ? validSigns.map(s => `${s.emoji} ${escapeHtml(s.name)}`).join(" · ") : "None added"}</div>`;
+  card.appendChild(signRow);
+
+  const btnRow = document.createElement("div");
+  btnRow.style.cssText = "display:flex;gap:10px;margin-top:12px;";
+  const backBtn = document.createElement("button");
+  backBtn.className = "launchbtn";
+  backBtn.style.cssText = "background:transparent;color:var(--ink-soft);border:1px solid var(--border);flex:1;";
+  backBtn.textContent = "‹ Back to Edit";
+  backBtn.onclick = () => { state.reviewingStudy = false; render(); };
+  const confirmBtn = document.createElement("button");
+  confirmBtn.className = "launchbtn";
+  confirmBtn.style.flex = "1";
+  confirmBtn.textContent = state.saving ? "Saving…" : (f.editingId ? "✓ Confirm & Save Changes" : "✓ Confirm & Launch Study");
+  confirmBtn.disabled = state.saving;
+  confirmBtn.onclick = saveStudy;
+  btnRow.appendChild(backBtn);
+  btnRow.appendChild(confirmBtn);
+  card.appendChild(btnRow);
+
+  return card;
 }
 
 async function saveStudy(){
@@ -381,6 +449,7 @@ async function saveStudy(){
     state.launchResult = data.study;
     state.form = blankForm();
     state.saving = false;
+    state.reviewingStudy = false;
     fetchStudies();
   } catch (err) {
     state.saving = false;
@@ -468,6 +537,7 @@ async function loadStudyForEdit(id){
       signTypes: s.signTypes.map(x => ({...x}))
     };
     state.launchResult = null;
+    state.reviewingStudy = false;
     render();
     window.scrollTo({top:0, behavior:"smooth"});
   } catch (err) {
