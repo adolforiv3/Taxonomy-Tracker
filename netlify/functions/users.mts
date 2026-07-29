@@ -77,12 +77,12 @@ export default async (req: Request, context: Context) => {
 
     const email = (body.email || "").trim().toLowerCase();
     const password = body.password || "";
-    const role: UserRole = body.role || "user";
+    const role: UserRole = body.role || "client_dri";
 
     if (!email || password.length < 6) {
       return Response.json({ error: "email and password (6+ chars) required" }, { status: 400 });
     }
-    if (!["user", "lab_admin", "superadmin"].includes(role)) {
+    if (!["client_dri", "lab_admin", "superadmin"].includes(role)) {
       return Response.json({ error: "invalid role" }, { status: 400 });
     }
 

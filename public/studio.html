@@ -696,7 +696,7 @@ function renderUserManagement(){
   roleField.innerHTML = `<label>Role</label>`;
   const roleSelect = document.createElement("select");
   roleSelect.style.cssText = "width: 100%; padding: 11px 13px; border: 1px solid var(--border); border-radius: var(--r-sm); font-size: 15px; background: var(--paper); color: var(--ink);";
-  roleSelect.innerHTML = `<option value="user">User (creates own studies)</option><option value="lab_admin">Lab Admin (assigned to studies)</option><option value="superadmin">Superadmin</option>`;
+  roleSelect.innerHTML = `<option value="client_dri">Client DRI (creates own studies)</option><option value="lab_admin">Lab Admin (assigned to studies)</option><option value="superadmin">Superadmin</option>`;
   roleField.appendChild(roleSelect);
   createSection.appendChild(roleField);
 

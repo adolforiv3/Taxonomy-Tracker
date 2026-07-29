@@ -4,7 +4,7 @@ const TOKEN_SECRET = Netlify.env.get("USER_TOKEN_SECRET") || "taxonomy-logger-de
 const TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const MASTER_PASSCODE = Netlify.env.get("MASTER_PASSCODE") || "taxonomyadmin";
 
-export type UserRole = "user" | "lab_admin" | "superadmin";
+export type UserRole = "client_dri" | "lab_admin" | "superadmin";
 
 function b64url(buf: Buffer): string {
   return Buffer.from(buf).toString("base64url");
