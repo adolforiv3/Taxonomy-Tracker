@@ -543,12 +543,17 @@ function renderSetup(){
     teamInput.type = "text";
     teamInput.placeholder = "e.g. Team A, Route 5, North Crew";
     teamInput.value = state.teamId || "";
+    // No render() here — re-rendering on every keystroke replaces this input
+    // with a fresh element and the browser drops focus, so only one
+    // character could ever be typed before the field needed re-clicking.
+    // Dependent UI (kit-grid ownership, the Next button) only needs to
+    // catch up once typing pauses, so that happens on blur instead.
     teamInput.oninput = (e) => {
       state.teamId = e.target.value.trim() || null;
       if(state.teamId) localStorage.setItem("tl_teamId_" + STUDY_ID, state.teamId);
       else localStorage.removeItem("tl_teamId_" + STUDY_ID);
-      render();
     };
+    teamInput.onblur = () => { render(); };
     main.appendChild(teamInput);
 
     main.appendChild(rowTitle("Protocol"));
