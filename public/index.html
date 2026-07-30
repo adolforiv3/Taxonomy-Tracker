@@ -91,9 +91,6 @@
   .tile:active{transform:scale(0.97);}
   .tile.selected{background:var(--ink);color:var(--card);border-color:var(--ink);box-shadow:var(--shadow-md);}
   .tile.wide{grid-column:1/-1;}
-  .tile.unavailable{background:var(--paper);color:var(--ink-soft);box-shadow:none;opacity:.55;cursor:not-allowed;}
-  .tile.unavailable:active{transform:none;}
-  .tile .tile-sub{display:block;font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-top:3px;}
 
   .icon-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;}
   .icon-tile{aspect-ratio:1;background:var(--card);border:1px solid var(--border);border-radius:var(--r-md);
@@ -177,20 +174,6 @@
 const STUDY_MATCH = window.location.pathname.match(/^\/s\/([^\/]+)/);
 const STUDY_ID = STUDY_MATCH ? STUDY_MATCH[1] : "default";
 
-// Identifies this specific browser session for kit-hold ownership, so a hold
-// placed by this tab can be released by this tab (and only this tab) later.
-// Persisted in sessionStorage so a re-render or short reload doesn't orphan
-// an in-progress hold, but a fresh tab always gets its own identity.
-const HOLD_SESSION_ID = (() => {
-  const key = "tl_holdSession";
-  let id = sessionStorage.getItem(key);
-  if (!id) {
-    id = (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2)) + Date.now().toString(36);
-    sessionStorage.setItem(key, id);
-  }
-  return id;
-})();
-
 /* ---------------- TAXONOMY (defaults for the root app; overridden per-study) ---------------- */
 let SIGN_EMOJI = {
   "Construction Sign": "🚧",
@@ -216,12 +199,6 @@ let SIGN_EMOJI = {
 };
 let SIGN_TYPES = Object.keys(SIGN_EMOJI).sort((a,b) => a.localeCompare(b));
 let PROTOCOLS = ["Walk", "Exploration", "Fast-Walk"];
-let TEAM_IDS = [1,2,3,4,5,6];
-let ENVIRONMENTS = [
-  "Urban Street", "Near Restaurant", "Popular Landmark", "Near Corporate",
-  "Residential", "Parking Garages and Parking Lots", "City Parks", "Gas Station"
-];
-let OBJECT_KITS = [1,2,3,4,5,6,7,8,9,10];
 let STUDY_NAME = "Taxonomy Logger";
 
 function isoWeek(dateStr){
@@ -243,11 +220,10 @@ let state = {
   studyLoaded: STUDY_ID === "default",
   studyError: false,
   date: new Date().toISOString().slice(0,10),
-  // Deliberately not persisted — a page refresh should start a genuinely
-  // clean session (team name, protocol, kit, route all blank again), not
-  // silently resume whatever was picked before.
+  // Not persisted — each run re-confirms who's logging (a device may be
+  // shared across teams over the course of a day), so team/protocol reset
+  // to blank both on a page refresh and after every submitted run.
   teamId: null,
-  teamIdInput: "",
   protocol: null,
   environment: null,
   objectKit: null,
@@ -263,151 +239,44 @@ let state = {
   editingId: null,
   editDraft: null,
   toast: null,
-  kitHolds: [], // [{kitNumber, teamId, sessionId}] currently held by anyone, from the server
-  kitHoldsLoading: false
+  assignments: [], // today's Lab Admin-set {teamId, kitNumber, route, environment} for this study
+  assignmentsLoading: false
 };
 
 let pollTimer = null;
-let kitHoldPollTimer = null;
 
 function setupComplete(){
-  return state.teamId && state.protocol && state.environment && state.objectKit && state.route.trim();
+  return state.teamId && state.protocol;
 }
 
-/* ---------------- KIT HOLDS ----------------
-   A kit is physical equipment shared across teams, so once a team picks one
-   for an open (unsubmitted) run, no one else should be able to pick the same
-   kit until that run is finished or the hold expires. */
-function kitsHeldByOthers(){
-  return new Set(
-    state.kitHolds
-      .filter(h => !(h.teamId === state.teamId && h.sessionId === HOLD_SESSION_ID))
-      .map(h => h.kitNumber)
-  );
-}
-
-async function fetchKitHolds(){
-  state.kitHoldsLoading = true;
+/* ---------------- ASSIGNMENTS ----------------
+   Kit, route, and environment are no longer picked live by field teams —
+   a Lab Admin plans them out ahead of time per team per day (see the
+   Assignments panel in the Study Builder), eliminating the double-booking
+   problem a real-time kit-hold system used to exist to solve. The field
+   app's only job here is showing today's assigned teams and prefilling
+   whichever one is picked. */
+async function fetchAssignments(){
+  state.assignmentsLoading = true;
+  render();
   try {
-    const res = await fetch(`/api/kit-holds?study=${encodeURIComponent(STUDY_ID)}`);
+    const res = await fetch(`/api/assignments?study=${encodeURIComponent(STUDY_ID)}&date=${encodeURIComponent(state.date)}`);
     if(res.ok){
       const data = await res.json();
-      state.kitHolds = data.holds || [];
+      state.assignments = data.assignments || [];
     }
   } catch (err) {
-    // keep last known list — a stale hold list just means a taken kit briefly
-    // still looks available, which the acquire attempt below will catch.
+    // keep last known list
   }
-  state.kitHoldsLoading = false;
+  state.assignmentsLoading = false;
   render();
 }
 
-function startKitHoldPolling(){
-  if(kitHoldPollTimer) clearInterval(kitHoldPollTimer);
-  kitHoldPollTimer = setInterval(fetchKitHolds, 8000);
-}
-function stopKitHoldPolling(){
-  if(kitHoldPollTimer) clearInterval(kitHoldPollTimer);
-  kitHoldPollTimer = null;
-}
-
-// Keeps polling running only while the kit-selection tile grid is actually
-// on screen — once a team has a kit, their hold is already placed and other
-// teams' picks are no longer this tab's concern until they hit "Change".
-let kitHoldPollingActive = false;
-function syncKitHoldPolling(){
-  const shouldPoll = state.studyLoaded && !state.studyError && state.tab === "log" && !state.objectKit;
-  if(shouldPoll && !kitHoldPollingActive){
-    kitHoldPollingActive = true;
-    fetchKitHolds();
-    startKitHoldPolling();
-  } else if(!shouldPoll && kitHoldPollingActive){
-    kitHoldPollingActive = false;
-    stopKitHoldPolling();
-  }
-}
-
-async function acquireKitHold(kitNumber){
-  try {
-    const res = await fetch("/api/kit-holds", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ studyId: STUDY_ID, kitNumber, teamId: state.teamId, sessionId: HOLD_SESSION_ID })
-    });
-    if(res.ok) return true;
-    const data = await res.json().catch(() => ({}));
-    showToast(data.error || `Kit ${kitNumber} is already in use`);
-    return false;
-  } catch (err) {
-    showToast("Couldn't reserve that kit — check connection and try again");
-    return false;
-  } finally {
-    fetchKitHolds();
-  }
-}
-
-async function releaseKitHold(kitNumber){
-  if(!kitNumber) return;
-  try {
-    await fetch("/api/kit-holds", {
-      method: "DELETE",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ studyId: STUDY_ID, kitNumber, teamId: state.teamId, sessionId: HOLD_SESSION_ID })
-    });
-  } catch (err) {
-    // best-effort — an unreleased hold still self-expires server-side
-  }
-  fetchKitHolds();
-}
-
-// Silently re-places the same hold to push its expiry back out. The acquire
-// endpoint is already a no-op-then-extend for the session that already owns
-// the kit, so this is just that, called on a timer — deliberately no toast
-// and no render(): those are for the interactive selection flow, and firing
-// them every few minutes in the background would yank focus out from under
-// whatever the team is typing (calibration ID, notes, ...) the same way the
-// team-name field used to.
-function renewKitHold(kitNumber){
-  fetch("/api/kit-holds", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ studyId: STUDY_ID, kitNumber, teamId: state.teamId, sessionId: HOLD_SESSION_ID })
-  }).catch(() => {});
-}
-
-let kitHoldHeartbeatTimer = null;
-function startKitHoldHeartbeat(){
-  if(kitHoldHeartbeatTimer) clearInterval(kitHoldHeartbeatTimer);
-  // Comfortably inside the server's 15-minute TTL, so one missed beat (a
-  // network blip) still leaves time for the next to land before expiry.
-  kitHoldHeartbeatTimer = setInterval(() => { if(state.objectKit) renewKitHold(state.objectKit); }, 5 * 60 * 1000);
-}
-function stopKitHoldHeartbeat(){
-  if(kitHoldHeartbeatTimer) clearInterval(kitHoldHeartbeatTimer);
-  kitHoldHeartbeatTimer = null;
-}
-
-// Runs for as long as a kit is held, independent of which app tab is open —
-// a team browsing the Weekly Document still physically has the kit in hand.
-let kitHoldHeartbeatActive = false;
-function syncKitHoldHeartbeat(){
-  const shouldRun = !!state.objectKit;
-  if(shouldRun && !kitHoldHeartbeatActive){
-    kitHoldHeartbeatActive = true;
-    startKitHoldHeartbeat();
-  } else if(!shouldRun && kitHoldHeartbeatActive){
-    kitHoldHeartbeatActive = false;
-    stopKitHoldHeartbeat();
-  }
-}
-
-async function selectObjectKit(kitNumber){
-  if(state.objectKit === kitNumber) return;
-  const previous = state.objectKit;
-  const acquired = await acquireKitHold(kitNumber);
-  if(!acquired) return;
-  if(previous && previous !== kitNumber) releaseKitHold(previous);
-  state.objectKit = kitNumber;
+function selectAssignment(a){
+  state.teamId = a.teamId;
+  state.objectKit = a.kitNumber;
+  state.route = a.route;
+  state.environment = a.environment;
   render();
 }
 
@@ -420,9 +289,6 @@ async function loadStudy(){
     const s = data.study;
     STUDY_NAME = s.name;
     PROTOCOLS = s.protocols.length ? s.protocols : PROTOCOLS;
-    ENVIRONMENTS = s.environments;
-    TEAM_IDS = Array.from({length: s.teamCount}, (_, i) => i + 1);
-    OBJECT_KITS = Array.from({length: s.objectKitCount}, (_, i) => i + 1);
     SIGN_EMOJI = {};
     s.signTypes.forEach(t => { SIGN_EMOJI[t.name] = t.emoji; });
     SIGN_TYPES = Object.keys(SIGN_EMOJI).sort((a,b) => a.localeCompare(b));
@@ -431,6 +297,7 @@ async function loadStudy(){
     state.studyError = true;
   }
   render();
+  fetchAssignments();
 }
 
 /* ---------------- RENDER ---------------- */
@@ -439,9 +306,6 @@ const app = document.getElementById("app");
 function render(){
   const prevMain = app.querySelector("main");
   const prevScroll = prevMain ? prevMain.scrollTop : 0;
-
-  syncKitHoldPolling();
-  syncKitHoldHeartbeat();
 
   app.innerHTML = "";
   app.appendChild(renderHeader());
@@ -549,11 +413,10 @@ function renderCtxBar(){
   changeBtn.className = "changebtn";
   changeBtn.textContent = "Change";
   changeBtn.onclick = () => {
-    const heldKit = state.objectKit;
-    state.protocol=null; state.environment=null; state.objectKit=null;
+    state.teamId=null; state.protocol=null; state.environment=null; state.objectKit=null;
     state.route="";
     render();
-    if(heldKit) releaseKitHold(heldKit);
+    fetchAssignments();
   };
   btns.appendChild(changeBtn);
 
@@ -580,73 +443,42 @@ function renderSetup(){
   const main = document.createElement("main");
   main.style.paddingBottom = "20px";
 
-  const page1Done = state.teamId && state.protocol && state.objectKit && state.route.trim();
-
-  if(!page1Done){
-    main.appendChild(rowTitle("Team Name / ID"));
-    const teamInput = document.createElement("input");
-    teamInput.type = "text";
-    teamInput.placeholder = "e.g. Team A, Route 5, North Crew";
-    teamInput.value = state.teamId || "";
-    // No render() here — re-rendering on every keystroke replaces this input
-    // with a fresh element and the browser drops focus, so only one
-    // character could ever be typed before the field needed re-clicking.
-    // Dependent UI (kit-grid ownership, the Next button) only needs to
-    // catch up once typing pauses, so that happens on blur instead.
-    teamInput.oninput = (e) => {
-      state.teamId = e.target.value.trim() || null;
-    };
-    teamInput.onblur = () => { render(); };
-    main.appendChild(teamInput);
-
-    main.appendChild(rowTitle("Protocol"));
-    main.appendChild(tileGrid(PROTOCOLS.map(m=>({label:m, wide:true, sel: state.protocol===m, onClick:()=>{state.protocol=m; render();}}))));
-
-    const heldByOthers = kitsHeldByOthers();
-    main.appendChild(rowTitle(`Object Kit${state.kitHoldsLoading ? " (checking availability…)" : ""}`));
-    main.appendChild(tileGrid(OBJECT_KITS.map(k=>{
-      const unavailable = heldByOthers.has(k) && state.objectKit !== k;
-      return {
-        label: "Kit "+k,
-        sel: state.objectKit===k,
-        unavailable,
-        onClick: () => {
-          if(!state.teamId){ showToast("Enter your team name first"); return; }
-          selectObjectKit(k);
-        }
-      };
-    })));
-
-    main.appendChild(rowTitle("Route"));
-    const routeInput = document.createElement("input");
-    routeInput.type = "text";
-    routeInput.placeholder = "e.g. Main St Loop";
-    routeInput.value = state.route;
-    routeInput.oninput = (e) => { state.route = e.target.value; };
-    main.appendChild(routeInput);
-
-    const nextBtn = document.createElement("button");
-    nextBtn.className = "logbtn";
-    nextBtn.style.marginTop = "20px";
-    nextBtn.textContent = "Next";
-    nextBtn.onclick = () => {
-      if(!state.teamId || !state.protocol || !state.objectKit || !state.route.trim()){
-        showToast("Team ID, Protocol, Object Kit, and Route are required");
-        return;
-      }
-      render();
-    };
-    main.appendChild(nextBtn);
-  } else {
-    const back = document.createElement("button");
-    back.className = "backbtn";
-    back.textContent = "‹ Back";
-    back.onclick = () => { state.route = ""; render(); };
-    main.appendChild(back);
-
-    main.appendChild(rowTitle("Environment Type"));
-    main.appendChild(tileGrid(ENVIRONMENTS.map(e=>({label:e, wide:true, sel: state.environment===e, onClick:()=>{state.environment=e; render();}}))));
+  if(!state.teamId){
+    main.appendChild(rowTitle(`Team${state.assignmentsLoading ? " (loading…)" : ""}`));
+    if(!state.assignmentsLoading && state.assignments.length === 0){
+      const empty = document.createElement("div");
+      empty.style.cssText = "font-size:13px;color:var(--ink-soft);padding:8px 2px;line-height:1.5;";
+      empty.textContent = "No team assignments for today yet. Ask your Lab Admin to set up today's kit/route/environment assignments in the Study Builder.";
+      main.appendChild(empty);
+    } else {
+      main.appendChild(tileGrid(state.assignments.map(a => ({
+        label: a.teamId, wide: true, sel: false, onClick: () => selectAssignment(a)
+      }))));
+    }
+    return main;
   }
+
+  const back = document.createElement("button");
+  back.className = "backbtn";
+  back.textContent = "‹ Not my team";
+  back.onclick = () => {
+    state.teamId=null; state.protocol=null; state.environment=null; state.objectKit=null;
+    state.route="";
+    render();
+  };
+  main.appendChild(back);
+
+  const summary = document.createElement("div");
+  summary.className = "reviewblock";
+  summary.innerHTML = `
+    <div class="rlabel">Assigned Today</div>
+    <div class="rvalue">${escapeHtml(state.teamId)}</div>
+    <div class="entry-meta" style="margin-top:4px;">Kit ${state.objectKit} · Route ${escapeHtml(state.route)} · ${escapeHtml(state.environment)}</div>
+  `;
+  main.appendChild(summary);
+
+  main.appendChild(rowTitle("Protocol"));
+  main.appendChild(tileGrid(PROTOCOLS.map(m=>({label:m, wide:true, sel: state.protocol===m, onClick:()=>{state.protocol=m; render();}}))));
 
   return main;
 }
@@ -658,23 +490,18 @@ function rowTitle(txt){
   return d;
 }
 
-function tile(label, selected, onClick, wide, unavailable, subLabel){
+function tile(label, selected, onClick, wide){
   const b = document.createElement("button");
-  b.className = "tile" + (selected?" selected":"") + (wide?" wide":"") + (unavailable?" unavailable":"");
-  if(unavailable){
-    b.innerHTML = `${escapeHtml(label)}<span class="tile-sub">${escapeHtml(subLabel || "In Use")}</span>`;
-    b.disabled = true;
-  } else {
-    b.textContent = label;
-    b.onclick = onClick;
-  }
+  b.className = "tile" + (selected?" selected":"") + (wide?" wide":"");
+  b.textContent = label;
+  b.onclick = onClick;
   return b;
 }
 
 function tileGrid(items){
   const g = document.createElement("div");
   g.className = "grid";
-  items.forEach(it => g.appendChild(tile(it.label, it.sel, it.onClick, it.wide, it.unavailable, it.subLabel)));
+  items.forEach(it => g.appendChild(tile(it.label, it.sel, it.onClick, it.wide)));
   return g;
 }
 
@@ -935,6 +762,14 @@ async function finishRound(){
     state.captureSessionId = "";
     state.sessionNotes = "";
     state.submitting = false;
+    // Back to the team picker for the next run — a device may be shared
+    // across teams over the course of a day, so each run re-confirms who's
+    // logging rather than silently continuing under whoever set up last.
+    state.teamId = null;
+    state.protocol = null;
+    state.environment = null;
+    state.objectKit = null;
+    state.route = "";
     showToast(`Run complete — ${count} entries saved to the weekly document`);
     render();
   } catch (err) {
@@ -1211,22 +1046,9 @@ function escapeHtml(s){
   return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 }
 
-// A refresh means a genuinely fresh session (see the teamId/objectKit reset
-// above), so any kit hold this tab was still carrying from before the
-// refresh needs to go with it — otherwise it'd sit reserved and invisible
-// until its 8-hour expiry, blocking other teams from a kit nobody's UI
-// still shows as selected.
-function releaseAllMyHolds(){
-  fetch("/api/kit-holds", {
-    method: "DELETE",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ studyId: STUDY_ID, sessionId: HOLD_SESSION_ID })
-  }).catch(() => {});
-}
-
-releaseAllMyHolds();
 render();
 if(STUDY_ID !== "default") loadStudy();
+else fetchAssignments();
 </script>
 </body>
 </html>
