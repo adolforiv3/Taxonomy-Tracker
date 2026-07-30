@@ -2,6 +2,7 @@ import type { Context, Config } from "@netlify/functions";
 import { getStore } from "@netlify/blobs";
 import { verifyToken, isSuperadmin, isLabAdmin, type UserRole } from "./utils/auth.mts";
 import { usersStore } from "./utils/store.mts";
+import { autoEmoji } from "./utils/emoji.mts";
 
 interface Study {
   id: string;
@@ -39,6 +40,12 @@ function sanitizeForList(study: Study) {
 function sanitizeForFieldApp(study: Study) {
   const { passcode, ...rest } = study;
   return rest;
+}
+
+// Emoji is always derived from the name server-side — DRIs never pick one,
+// so any client-supplied emoji is ignored and overwritten here.
+function withAutoEmoji(signTypes: any[]): { name: string; emoji: string }[] {
+  return signTypes.map((t) => ({ name: t.name, emoji: autoEmoji(t.name) }));
 }
 
 async function resolveUser(req: Request): Promise<User | null> {
@@ -106,11 +113,14 @@ export default async (req: Request, context: Context) => {
       dateStart: body.dateStart || "",
       dateEnd: body.dateEnd || "",
       passcode: body.passcode,
-      teamCount: Number(body.teamCount) || 6,
+      // A caller that omits the field entirely gets the old defaults; one that
+      // explicitly sends 0 (the Study Builder's new default) gets exactly 0,
+      // since `Number(0) || 6` would otherwise silently coerce it back to 6.
+      teamCount: body.teamCount !== undefined ? Number(body.teamCount) || 0 : 6,
       protocols: Array.isArray(body.protocols) && body.protocols.length ? body.protocols : ["Walk", "Exploration", "Fast-Walk"],
       environments: Array.isArray(body.environments) ? body.environments : [],
-      objectKitCount: Number(body.objectKitCount) || 10,
-      signTypes: Array.isArray(body.signTypes) ? body.signTypes : [],
+      objectKitCount: body.objectKitCount !== undefined ? Number(body.objectKitCount) || 0 : 10,
+      signTypes: Array.isArray(body.signTypes) ? withAutoEmoji(body.signTypes) : [],
       createdAt: new Date().toISOString()
     };
     await store.setJSON(study.id, study);
@@ -139,6 +149,9 @@ export default async (req: Request, context: Context) => {
     const merged = { ...existing };
     for (const field of allowedFields) {
       if (field in updates) (merged as any)[field] = updates[field];
+    }
+    if (Array.isArray(merged.signTypes)) {
+      merged.signTypes = withAutoEmoji(merged.signTypes);
     }
     merged.updatedAt = new Date().toISOString();
 
