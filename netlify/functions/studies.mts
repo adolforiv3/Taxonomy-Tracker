@@ -4,6 +4,18 @@ import { verifyToken, isSuperadmin, isLabAdmin, type UserRole } from "./utils/au
 import { usersStore } from "./utils/store.mts";
 import { autoEmoji } from "./utils/emoji.mts";
 
+// A study can run for weeks at a stretch while the team travels city to
+// city, so location is scheduled per ISO week (e.g. "2026-W31") rather than
+// being a single fixed value for the whole study — and unlike protocols or
+// taxonomy, it's expected to pivot: a DRI can freely edit a week's location
+// after the fact if the team's plans change.
+interface LocationScheduleEntry {
+  id: string;
+  week: string; // ISO week, e.g. "2026-W31"
+  state: string;
+  city: string;
+}
+
 interface Study {
   id: string;
   name: string;
@@ -17,6 +29,7 @@ interface Study {
   environments: string[];
   objectKitCount: number;
   signTypes: { name: string; emoji: string }[];
+  locationSchedule: LocationScheduleEntry[];
   createdAt: string;
   updatedAt?: string;
 }
@@ -46,6 +59,29 @@ function sanitizeForFieldApp(study: Study) {
 // so any client-supplied emoji is ignored and overwritten here.
 function withAutoEmoji(signTypes: any[]): { name: string; emoji: string }[] {
   return signTypes.map((t) => ({ name: t.name, emoji: autoEmoji(t.name) }));
+}
+
+// Rejects a schedule that's missing required fields or double-books a week
+// (two locations for the same week is almost certainly a mistake, not an
+// intentional mid-week split — a genuine pivot is an edit, not a second
+// entry). Returns null on any validation failure.
+function normalizeLocationSchedule(input: any): LocationScheduleEntry[] | null {
+  if (!Array.isArray(input)) return null;
+  const seen = new Set<string>();
+  const schedule: LocationScheduleEntry[] = [];
+  for (const raw of input) {
+    const entry = raw || {};
+    if (!entry.week || !entry.state || !entry.city) return null;
+    if (seen.has(entry.week)) return null;
+    seen.add(entry.week);
+    schedule.push({
+      id: entry.id || Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4),
+      week: entry.week,
+      state: entry.state,
+      city: entry.city
+    });
+  }
+  return schedule;
 }
 
 async function resolveUser(req: Request): Promise<User | null> {
@@ -126,6 +162,7 @@ export default async (req: Request, context: Context) => {
       environments: Array.isArray(body.environments) ? body.environments : [],
       objectKitCount: body.objectKitCount !== undefined ? Number(body.objectKitCount) || 0 : 10,
       signTypes: Array.isArray(body.signTypes) ? withAutoEmoji(body.signTypes) : [],
+      locationSchedule: normalizeLocationSchedule(body.locationSchedule) || [],
       createdAt: new Date().toISOString()
     };
     await store.setJSON(study.id, study);
@@ -164,6 +201,17 @@ export default async (req: Request, context: Context) => {
         return Response.json({ error: "only superadmins can assign lab admins to a study" }, { status: 403 });
       }
       merged.labAdminIds = updates.labAdminIds;
+    }
+    // Location is scheduled per week and is expected to pivot, unlike
+    // protocols/taxonomy — but still the DRI's (or a superadmin's) call,
+    // same as the rest of the study, so it rides the general permission
+    // check above rather than needing its own carve-out like labAdminIds.
+    if ("locationSchedule" in updates) {
+      const schedule = normalizeLocationSchedule(updates.locationSchedule);
+      if (!schedule) {
+        return Response.json({ error: "each location needs a week, state, and city, and a week can only appear once" }, { status: 400 });
+      }
+      merged.locationSchedule = schedule;
     }
     if (Array.isArray(merged.signTypes)) {
       merged.signTypes = withAutoEmoji(merged.signTypes);

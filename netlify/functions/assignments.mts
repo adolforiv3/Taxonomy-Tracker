@@ -3,13 +3,14 @@ import { getStore } from "@netlify/blobs";
 import { verifyToken, isSuperadmin, isLabAdmin, type UserRole } from "./utils/auth.mts";
 import { usersStore } from "./utils/store.mts";
 
-// A DRI/lab admin plans out, ahead of time, exactly which team carries which
-// kit (and where, geographically) for a given day — replacing the earlier
-// real-time "first team to tap the tile wins it" kit-hold system. Since a
-// human with full day-of context is doing the planning, there's no
-// concurrent-selection race to guard against; the only integrity check left
-// is catching an admin's own mistake (assigning the same kit to two teams
-// on the same day).
+// A lab admin plans out, ahead of time, exactly which team carries which
+// kit for a given day — replacing the earlier real-time "first team to tap
+// the tile wins it" kit-hold system. Since a human with full day-of context
+// is doing the planning, there's no concurrent-selection race to guard
+// against; the only integrity check left is catching an admin's own mistake
+// (assigning the same kit to two teams on the same day). Geographic
+// location is a DRI-owned, study-level concept scheduled per week (see
+// studies.mts's locationSchedule) — it doesn't live here.
 //
 // A team's assignment carries one or more routes: a primary, plus optional
 // backups for when the primary is obstructed or otherwise compromising data
@@ -30,8 +31,6 @@ interface Assignment {
   date: string; // YYYY-MM-DD, the field day this assignment is valid for
   teamId: string; // team name, matches what field entries are tagged with
   kitNumber: number;
-  locationState: string;
-  locationCity: string;
   routes: AssignmentRoute[];
   createdBy: string;
   createdAt: string;
@@ -119,8 +118,8 @@ export default async (req: Request, context: Context) => {
     if (!body.studyId || !(await canManageAssignmentsFor(user, body.studyId))) {
       return Response.json({ error: "you do not have permission to manage assignments for this study" }, { status: 403 });
     }
-    if (!body.date || !body.teamId || !body.kitNumber || !body.locationState || !body.locationCity) {
-      return Response.json({ error: "date, teamId, kitNumber, locationState, and locationCity are required" }, { status: 400 });
+    if (!body.date || !body.teamId || !body.kitNumber) {
+      return Response.json({ error: "date, teamId, and kitNumber are required" }, { status: 400 });
     }
     const routes = normalizeRoutes(body.routes);
     if (!routes) {
@@ -148,8 +147,6 @@ export default async (req: Request, context: Context) => {
       date: body.date,
       teamId: body.teamId,
       kitNumber: Number(body.kitNumber),
-      locationState: body.locationState,
-      locationCity: body.locationCity,
       routes,
       createdBy: user!.id,
       createdAt: new Date().toISOString()
@@ -175,8 +172,6 @@ export default async (req: Request, context: Context) => {
     const updates = body.updates || {};
     const merged = { ...existing[idx] };
     if ("kitNumber" in updates) merged.kitNumber = Number(updates.kitNumber);
-    if ("locationState" in updates) merged.locationState = updates.locationState;
-    if ("locationCity" in updates) merged.locationCity = updates.locationCity;
     if ("routes" in updates) {
       const routes = normalizeRoutes(updates.routes);
       if (!routes) {

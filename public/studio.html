@@ -142,10 +142,13 @@ let state = {
   form: blankForm(),
   managingAssignmentsFor: null, // study id, or null
   managingLabAdminsFor: null, // study id, or null (superadmin only)
+  managingLocationsFor: null, // study id, or null (DRI/superadmin only)
   assignmentDate: new Date().toISOString().slice(0, 10),
   assignments: [],
   assignmentsLoading: false,
-  assignmentRoutesDraft: [{ route: "", environment: "" }] // primary + optional backups, built up in the create form
+  assignmentRoutesDraft: [{ route: "", environment: "" }], // primary + optional backups, built up in the create form
+  locationDraft: { date: new Date().toISOString().slice(0, 10), state: "", city: "" },
+  editingLocationId: null // location schedule entry id currently being edited inline, or null
 };
 
 const app = document.getElementById("app");
@@ -364,6 +367,8 @@ function renderDashboard(){
     main.appendChild(renderAssignmentsView());
   } else if(state.managingLabAdminsFor){
     main.appendChild(renderLabAdminManagement());
+  } else if(state.managingLocationsFor){
+    main.appendChild(renderLocationsView());
   } else if(state.reviewingStudy){
     main.appendChild(renderStudyReview());
   } else {
@@ -823,6 +828,16 @@ function renderStudyList(){
 
     actions.appendChild(fieldBtn);
     actions.appendChild(adminBtn);
+    // Scheduling where the study is happening each week is the DRI's call
+    // (or a superadmin's on their behalf) — same owner as the study's other
+    // scoping details (protocols, taxonomy), not the Lab Admin running
+    // day-to-day assignments.
+    if(state.user.id === s.createdBy || state.user.role === "superadmin"){
+      const locationsBtn = document.createElement("button");
+      locationsBtn.textContent = "Locations";
+      locationsBtn.onclick = () => openLocations(s.id);
+      actions.appendChild(locationsBtn);
+    }
     // Day-of team/kit/route/environment planning is a Lab Admin job, not
     // the DRI's — a DRI scopes the study, a Lab Admin runs the field day.
     if(state.user.role === "lab_admin" || state.user.role === "superadmin"){
@@ -949,14 +964,6 @@ function renderAssignmentsView(){
   kitWrap.appendChild(kitSelect);
   createSection.appendChild(kitWrap);
 
-  const locRow = document.createElement("div");
-  locRow.className = "row2";
-  const stateField = fieldInput("State", "text", "", () => {}, "e.g. Colorado");
-  const cityField = fieldInput("City", "text", "", () => {}, "e.g. Denver");
-  locRow.appendChild(stateField);
-  locRow.appendChild(cityField);
-  createSection.appendChild(locRow);
-
   createSection.appendChild(routesEditor(state.assignmentRoutesDraft, study.environments));
 
   const addErr = document.createElement("div");
@@ -968,14 +975,12 @@ function renderAssignmentsView(){
   addBtn.textContent = "Add Assignment";
   addBtn.onclick = () => {
     const teamId = teamField.querySelector("input").value.trim();
-    const locationState = stateField.querySelector("input").value.trim();
-    const locationCity = cityField.querySelector("input").value.trim();
-    if(!teamId || !locationState || !locationCity){
-      addErr.textContent = "Team name, state, and city are required";
+    if(!teamId){
+      addErr.textContent = "Team name is required";
       return;
     }
     addErr.textContent = "";
-    createAssignment(studyId, teamId, kitSelect.value, locationState, locationCity, state.assignmentRoutesDraft, addErr);
+    createAssignment(studyId, teamId, kitSelect.value, state.assignmentRoutesDraft, addErr);
   };
   createSection.appendChild(addBtn);
   card.appendChild(createSection);
@@ -1005,7 +1010,7 @@ function renderAssignmentsView(){
       row.innerHTML = `
         <div>
           <div class="name">${escapeHtml(a.teamId)}</div>
-          <div class="meta">Kit ${a.kitNumber} · ${escapeHtml(a.locationCity)}, ${escapeHtml(a.locationState)}</div>
+          <div class="meta">Kit ${a.kitNumber}</div>
           <div class="meta">${routesSummary}</div>
         </div>
       `;
@@ -1090,12 +1095,12 @@ function routesEditor(routes, environments){
   return wrap;
 }
 
-async function createAssignment(studyId, teamId, kitNumber, locationState, locationCity, routes, errEl){
+async function createAssignment(studyId, teamId, kitNumber, routes, errEl){
   try {
     const res = await fetch("/api/assignments", {
       method: "POST",
       headers: { "content-type": "application/json", "x-user-token": state.token },
-      body: JSON.stringify({ studyId, date: state.assignmentDate, teamId, kitNumber, locationState, locationCity, routes })
+      body: JSON.stringify({ studyId, date: state.assignmentDate, teamId, kitNumber, routes })
     });
     const data = await res.json();
     if(!res.ok){
@@ -1254,6 +1259,203 @@ function removeLabAdmin(studyId, userId){
   if(!study) return;
   const next = (study.labAdminIds || []).filter(id => id !== userId);
   patchLabAdminIds(studyId, next);
+}
+
+// Same ISO-week convention the field app and CSV export already use, so a
+// location scheduled here lines up with the same week those group entries by.
+function isoWeek(dateStr){
+  const d = new Date(dateStr + "T00:00:00Z");
+  const target = new Date(d.valueOf());
+  const dayNr = (d.getUTCDay() + 6) % 7;
+  target.setUTCDate(target.getUTCDate() - dayNr + 3);
+  const firstThursday = target.valueOf();
+  target.setUTCMonth(0, 1);
+  if(target.getUTCDay() !== 4){ target.setUTCMonth(0, 1 + ((4 - target.getUTCDay() + 7) % 7)); }
+  const week = 1 + Math.ceil((firstThursday - target.valueOf()) / (7*24*3600*1000));
+  return `${d.getUTCFullYear()}-W${String(week).padStart(2,"0")}`;
+}
+
+function openLocations(studyId){
+  state.managingLocationsFor = studyId;
+  state.locationDraft = { date: new Date().toISOString().slice(0, 10), state: "", city: "" };
+  state.editingLocationId = null;
+  render();
+}
+
+function renderLocationsView(){
+  const studyId = state.managingLocationsFor;
+  const study = state.studies.find(s => s.id === studyId);
+  const card = document.createElement("div");
+  card.className = "card";
+
+  if(!study){
+    card.innerHTML = `<h2>Locations</h2><div class="empty">Study not found.</div>`;
+    return card;
+  }
+
+  card.innerHTML = `<h2>Locations — ${escapeHtml(study.name)}</h2>`;
+
+  const backBtn = document.createElement("button");
+  backBtn.className = "launchbtn";
+  backBtn.style.cssText = "background:transparent;color:var(--ink-soft);border:1px solid var(--border);margin-bottom:18px;";
+  backBtn.textContent = "‹ Back to Studies";
+  backBtn.onclick = () => { state.managingLocationsFor = null; render(); };
+  card.appendChild(backBtn);
+
+  const intro = document.createElement("div");
+  intro.style.cssText = "font-size:12.5px;color:var(--ink-soft);margin-bottom:16px;line-height:1.5;";
+  intro.textContent = "A study can span multiple weeks in different places as the team travels. Schedule a state/city per week — pick any date in that week. Locations can be edited any time if plans pivot; protocols and taxonomy stay fixed for the whole study.";
+  card.appendChild(intro);
+
+  const schedule = (study.locationSchedule || []).slice().sort((a, b) => a.week.localeCompare(b.week));
+
+  const addSection = document.createElement("div");
+  addSection.style.cssText = "padding-bottom:16px;border-bottom:1px solid var(--border);margin-bottom:16px;";
+  addSection.innerHTML = `<h3 style="font-size:14px;margin:0 0 12px;font-weight:700;">Schedule a Week</h3>`;
+
+  const dateField = document.createElement("div");
+  dateField.className = "field";
+  dateField.innerHTML = `<label>Any date in the target week</label>`;
+  const dateInput = document.createElement("input");
+  dateInput.type = "date";
+  dateInput.value = state.locationDraft.date;
+  dateInput.onclick = () => { if(dateInput.showPicker) dateInput.showPicker(); };
+  dateInput.onchange = (e) => { state.locationDraft.date = e.target.value; };
+  dateField.appendChild(dateInput);
+  addSection.appendChild(dateField);
+
+  const locRow = document.createElement("div");
+  locRow.className = "row2";
+  const stateField = fieldInput("State", "text", state.locationDraft.state, v => state.locationDraft.state = v, "e.g. Colorado");
+  const cityField = fieldInput("City", "text", state.locationDraft.city, v => state.locationDraft.city = v, "e.g. Denver");
+  locRow.appendChild(stateField);
+  locRow.appendChild(cityField);
+  addSection.appendChild(locRow);
+
+  const addErr = document.createElement("div");
+  addErr.style.cssText = "color:var(--red);font-size:12.5px;min-height:16px;margin-bottom:4px;";
+  addSection.appendChild(addErr);
+
+  const addBtn = document.createElement("button");
+  addBtn.className = "launchbtn";
+  addBtn.textContent = "Add Location";
+  addBtn.onclick = () => {
+    const week = isoWeek(state.locationDraft.date);
+    const st = stateField.querySelector("input").value.trim();
+    const city = cityField.querySelector("input").value.trim();
+    if(!st || !city){
+      addErr.textContent = "State and city are required";
+      return;
+    }
+    if(schedule.some(l => l.week === week)){
+      addErr.textContent = `${week} already has a location scheduled — edit or remove it below instead.`;
+      return;
+    }
+    addErr.textContent = "";
+    saveLocationSchedule(studyId, [...schedule, { week, state: st, city }], () => {
+      state.locationDraft = { date: new Date().toISOString().slice(0, 10), state: "", city: "" };
+    }, addErr);
+  };
+  addSection.appendChild(addBtn);
+  card.appendChild(addSection);
+
+  const listSection = document.createElement("div");
+  listSection.innerHTML = `<h3 style="font-size:14px;margin:0 0 12px;font-weight:700;">Scheduled Weeks (${schedule.length})</h3>`;
+
+  if(schedule.length === 0){
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = "No locations scheduled yet.";
+    listSection.appendChild(empty);
+  } else {
+    const list = document.createElement("div");
+    list.className = "studylist";
+    schedule.forEach(loc => {
+      const row = document.createElement("div");
+      row.className = "studyrow";
+
+      if(state.editingLocationId === loc.id){
+        row.style.cssText += "flex-direction:column;align-items:stretch;";
+        row.innerHTML = `<div class="name">${escapeHtml(loc.week)}</div>`;
+
+        const editRow = document.createElement("div");
+        editRow.className = "row2";
+        const editState = fieldInput("State", "text", loc.state, () => {}, "");
+        const editCity = fieldInput("City", "text", loc.city, () => {}, "");
+        editRow.appendChild(editState);
+        editRow.appendChild(editCity);
+        row.appendChild(editRow);
+
+        const editActions = document.createElement("div");
+        editActions.style.cssText = "display:flex;gap:8px;margin-top:8px;";
+        const saveBtn = document.createElement("button");
+        saveBtn.textContent = "Save";
+        saveBtn.onclick = () => {
+          const st = editState.querySelector("input").value.trim();
+          const city = editCity.querySelector("input").value.trim();
+          if(!st || !city) return;
+          const next = schedule.map(l => l.id === loc.id ? { ...l, state: st, city } : l);
+          saveLocationSchedule(studyId, next, () => { state.editingLocationId = null; });
+        };
+        const cancelBtn = document.createElement("button");
+        cancelBtn.textContent = "Cancel";
+        cancelBtn.onclick = () => { state.editingLocationId = null; render(); };
+        editActions.appendChild(saveBtn);
+        editActions.appendChild(cancelBtn);
+        row.appendChild(editActions);
+      } else {
+        row.innerHTML = `
+          <div>
+            <div class="name">${escapeHtml(loc.week)}</div>
+            <div class="meta">${escapeHtml(loc.city)}, ${escapeHtml(loc.state)}</div>
+          </div>
+        `;
+        const actions = document.createElement("div");
+        actions.className = "actions";
+        const editBtn = document.createElement("button");
+        editBtn.textContent = "Edit";
+        editBtn.onclick = () => { state.editingLocationId = loc.id; render(); };
+        const delBtn = document.createElement("button");
+        delBtn.className = "del";
+        delBtn.textContent = "Remove";
+        delBtn.onclick = () => {
+          if(!confirm(`Remove the ${loc.week} location (${loc.city}, ${loc.state})?`)) return;
+          saveLocationSchedule(studyId, schedule.filter(l => l.id !== loc.id));
+        };
+        actions.appendChild(editBtn);
+        actions.appendChild(delBtn);
+        row.appendChild(actions);
+      }
+      list.appendChild(row);
+    });
+    listSection.appendChild(list);
+  }
+  card.appendChild(listSection);
+
+  return card;
+}
+
+async function saveLocationSchedule(studyId, locationSchedule, onSuccess, errEl){
+  try {
+    const res = await fetch("/api/studies", {
+      method: "PATCH",
+      headers: { "content-type": "application/json", "x-user-token": state.token },
+      body: JSON.stringify({ id: studyId, updates: { locationSchedule } })
+    });
+    const data = await res.json();
+    if(!res.ok){
+      if(errEl) errEl.textContent = data.error || "Couldn't update locations";
+      else alert(data.error || "Couldn't update locations");
+      return;
+    }
+    const idx = state.studies.findIndex(s => s.id === studyId);
+    if(idx !== -1) state.studies[idx] = { ...state.studies[idx], locationSchedule: data.study.locationSchedule };
+    if(onSuccess) onSuccess();
+    render();
+  } catch (err) {
+    if(errEl) errEl.textContent = "Couldn't reach server";
+    else alert("Couldn't reach server");
+  }
 }
 
 async function loadStudyForEdit(id){

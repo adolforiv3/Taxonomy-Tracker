@@ -200,6 +200,7 @@ let SIGN_EMOJI = {
 let SIGN_TYPES = Object.keys(SIGN_EMOJI).sort((a,b) => a.localeCompare(b));
 let PROTOCOLS = ["Walk", "Exploration", "Fast-Walk"];
 let STUDY_NAME = "Taxonomy Logger";
+let LOCATION_SCHEDULE = []; // DRI-set {week, state, city}[] — a study can span weeks in different places
 
 function isoWeek(dateStr){
   const d = new Date(dateStr + "T00:00:00Z");
@@ -278,10 +279,10 @@ async function fetchAssignments(){
 }
 
 function selectAssignment(a){
+  // Location is a study-level, per-week concept the DRI schedules (see
+  // resolveWeekLocation) — it doesn't come from the team's assignment.
   state.teamId = a.teamId;
   state.objectKit = a.kitNumber;
-  state.locationState = a.locationState;
-  state.locationCity = a.locationCity;
   state.assignedRoutes = a.routes || [];
   if(state.assignedRoutes.length === 1){
     state.route = state.assignedRoutes[0].route;
@@ -304,6 +305,18 @@ function selectRoute(r){
   render();
 }
 
+// The DRI schedules one location per ISO week (see studies.mts's
+// locationSchedule) since a study can span weeks in different cities as the
+// team travels. Missing entirely here (rather than defaulting to blank)
+// means the DRI hasn't scheduled this week yet — render() blocks the whole
+// app on that rather than letting entries go out with no location at all.
+function resolveWeekLocation(){
+  const week = isoWeek(state.date);
+  const match = LOCATION_SCHEDULE.find(l => l.week === week);
+  state.locationState = match ? match.state : null;
+  state.locationCity = match ? match.city : null;
+}
+
 /* ---------------- STUDY LOADING ---------------- */
 async function loadStudy(){
   try {
@@ -313,6 +326,8 @@ async function loadStudy(){
     const s = data.study;
     STUDY_NAME = s.name;
     PROTOCOLS = s.protocols.length ? s.protocols : PROTOCOLS;
+    LOCATION_SCHEDULE = Array.isArray(s.locationSchedule) ? s.locationSchedule : [];
+    resolveWeekLocation();
     SIGN_EMOJI = {};
     s.signTypes.forEach(t => { SIGN_EMOJI[t.name] = t.emoji; });
     SIGN_TYPES = Object.keys(SIGN_EMOJI).sort((a,b) => a.localeCompare(b));
@@ -338,6 +353,11 @@ function render(){
     app.appendChild(renderStudyError());
   } else if(!state.studyLoaded){
     app.appendChild(renderStudyLoading());
+  } else if(STUDY_ID !== "default" && !state.locationCity){
+    // Location is required, foundational metadata now (not optional
+    // context) — block the whole app rather than let entries go out
+    // without it, same as an invalid study link does.
+    app.appendChild(renderLocationMissing());
   } else if(state.tab === "weekly" && !setupComplete()){
     app.appendChild(renderEarlyEditBar());
     app.appendChild(renderWeekly());
@@ -381,6 +401,12 @@ function renderStudyLoading(){
 function renderStudyError(){
   const main = document.createElement("main");
   main.innerHTML = `<div class="loadingwrap">This study link isn't valid, or the study may have been removed.<br><br>Check the link with your DRI / Lab Admin.</div>`;
+  return main;
+}
+
+function renderLocationMissing(){
+  const main = document.createElement("main");
+  main.innerHTML = `<div class="loadingwrap">No location has been scheduled for this week yet (${escapeHtml(isoWeek(state.date))}).<br><br>Ask your DRI to schedule this week's state/city in the Study Builder before logging can start.</div>`;
   return main;
 }
 
@@ -438,8 +464,9 @@ function renderCtxBar(){
   changeBtn.className = "changebtn";
   changeBtn.textContent = "Change";
   changeBtn.onclick = () => {
+    // Location is week-scoped, not team/run-scoped — it stays put here.
     state.teamId=null; state.protocol=null; state.environment=null; state.objectKit=null;
-    state.route=""; state.locationState=null; state.locationCity=null; state.assignedRoutes=[];
+    state.route=""; state.assignedRoutes=[];
     render();
     fetchAssignments();
   };
@@ -488,7 +515,7 @@ function renderSetup(){
   back.textContent = "‹ Not my team";
   back.onclick = () => {
     state.teamId=null; state.protocol=null; state.environment=null; state.objectKit=null;
-    state.route=""; state.locationState=null; state.locationCity=null; state.assignedRoutes=[];
+    state.route=""; state.assignedRoutes=[];
     render();
   };
   main.appendChild(back);
@@ -831,8 +858,6 @@ async function finishRound(){
     state.environment = null;
     state.objectKit = null;
     state.route = "";
-    state.locationState = null;
-    state.locationCity = null;
     state.assignedRoutes = [];
     showToast(`Run complete — ${count} entries saved to the weekly document`);
     render();
