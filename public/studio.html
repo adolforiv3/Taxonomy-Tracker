@@ -141,6 +141,7 @@ let state = {
   reviewingStudy: false,
   form: blankForm(),
   managingAssignmentsFor: null, // study id, or null
+  managingLabAdminsFor: null, // study id, or null (superadmin only)
   assignmentDate: new Date().toISOString().slice(0, 10),
   assignments: [],
   assignmentsLoading: false
@@ -360,10 +361,17 @@ function renderDashboard(){
     main.appendChild(renderUserManagement());
   } else if(state.managingAssignmentsFor){
     main.appendChild(renderAssignmentsView());
+  } else if(state.managingLabAdminsFor){
+    main.appendChild(renderLabAdminManagement());
   } else if(state.reviewingStudy){
     main.appendChild(renderStudyReview());
   } else {
-    main.appendChild(renderForm());
+    // Lab Admins manage assignments within studies they've been given
+    // access to, but don't create studies themselves — that's the DRI's
+    // (or a superadmin's) job.
+    if(state.user.role !== "lab_admin"){
+      main.appendChild(renderForm());
+    }
     main.appendChild(renderStudyList());
   }
   wrap.appendChild(main);
@@ -778,7 +786,11 @@ function renderStudyList(){
   if(state.studies.length === 0){
     const empty = document.createElement("div");
     empty.className = "empty";
-    empty.textContent = state.loading ? "Loading…" : "No studies created yet.";
+    empty.textContent = state.loading
+      ? "Loading…"
+      : (state.user.role === "lab_admin"
+        ? "No studies assigned to you yet. Ask a superadmin to assign you to one."
+        : "No studies created yet.");
     card.appendChild(empty);
     return card;
   }
@@ -808,15 +820,6 @@ function renderStudyList(){
     adminBtn.textContent = "Admin Link";
     adminBtn.onclick = () => { navigator.clipboard.writeText(`${origin}/s/${s.id}/admin`); adminBtn.textContent = "Copied!"; setTimeout(() => adminBtn.textContent = "Admin Link", 1200); };
 
-    const editBtn = document.createElement("button");
-    editBtn.textContent = "Edit";
-    editBtn.onclick = () => loadStudyForEdit(s.id);
-
-    const deleteBtn = document.createElement("button");
-    deleteBtn.className = "del";
-    deleteBtn.textContent = "Delete";
-    deleteBtn.onclick = () => deleteStudy(s.id, s.name);
-
     actions.appendChild(fieldBtn);
     actions.appendChild(adminBtn);
     // Day-of team/kit/route/environment planning is a Lab Admin job, not
@@ -827,8 +830,27 @@ function renderStudyList(){
       assignBtn.onclick = () => openAssignments(s.id);
       actions.appendChild(assignBtn);
     }
-    actions.appendChild(editBtn);
-    actions.appendChild(deleteBtn);
+    // Granting a Lab Admin access to a study is a superadmin-only action.
+    if(state.user.role === "superadmin"){
+      const labAdminBtn = document.createElement("button");
+      labAdminBtn.textContent = "Lab Admins";
+      labAdminBtn.onclick = () => openLabAdminManagement(s.id);
+      actions.appendChild(labAdminBtn);
+    }
+    // Editing/deleting the study itself is the creating DRI's (or a
+    // superadmin's) call — a Lab Admin only manages assignments within it.
+    if(state.user.role !== "lab_admin"){
+      const editBtn = document.createElement("button");
+      editBtn.textContent = "Edit";
+      editBtn.onclick = () => loadStudyForEdit(s.id);
+      actions.appendChild(editBtn);
+
+      const deleteBtn = document.createElement("button");
+      deleteBtn.className = "del";
+      deleteBtn.textContent = "Delete";
+      deleteBtn.onclick = () => deleteStudy(s.id, s.name);
+      actions.appendChild(deleteBtn);
+    }
     row.appendChild(actions);
     list.appendChild(row);
   });
@@ -1041,6 +1063,132 @@ async function deleteAssignment(studyId, id, teamId){
   } catch (err) {
     alert("Couldn't reach server");
   }
+}
+
+async function openLabAdminManagement(studyId){
+  state.managingLabAdminsFor = studyId;
+  render();
+  await fetchUsers();
+  render();
+}
+
+function renderLabAdminManagement(){
+  const studyId = state.managingLabAdminsFor;
+  const study = state.studies.find(s => s.id === studyId);
+  const card = document.createElement("div");
+  card.className = "card";
+
+  if(!study){
+    card.innerHTML = `<h2>Lab Admins</h2><div class="empty">Study not found.</div>`;
+    return card;
+  }
+
+  card.innerHTML = `<h2>Lab Admins — ${escapeHtml(study.name)}</h2>`;
+
+  const backBtn = document.createElement("button");
+  backBtn.className = "launchbtn";
+  backBtn.style.cssText = "background:transparent;color:var(--ink-soft);border:1px solid var(--border);margin-bottom:18px;";
+  backBtn.textContent = "‹ Back to Studies";
+  backBtn.onclick = () => { state.managingLabAdminsFor = null; render(); };
+  card.appendChild(backBtn);
+
+  const assignedIds = study.labAdminIds || [];
+  const labAdminUsers = state.users.filter(u => u.role === "lab_admin");
+
+  const assignedSection = document.createElement("div");
+  assignedSection.style.cssText = "padding-bottom:16px;border-bottom:1px solid var(--border);margin-bottom:16px;";
+  assignedSection.innerHTML = `<h3 style="font-size:14px;margin:0 0 12px;font-weight:700;">Assigned (${assignedIds.length})</h3>`;
+  if(assignedIds.length === 0){
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = "No lab admins assigned to this study yet.";
+    assignedSection.appendChild(empty);
+  } else {
+    const list = document.createElement("div");
+    list.className = "studylist";
+    assignedIds.forEach(id => {
+      const u = state.users.find(x => x.id === id);
+      const row = document.createElement("div");
+      row.className = "studyrow";
+      row.innerHTML = `<div><div class="name">${escapeHtml(u ? u.email : id)}</div></div>`;
+      const actions = document.createElement("div");
+      actions.className = "actions";
+      const removeBtn = document.createElement("button");
+      removeBtn.className = "del";
+      removeBtn.textContent = "Remove";
+      removeBtn.onclick = () => removeLabAdmin(studyId, id);
+      actions.appendChild(removeBtn);
+      row.appendChild(actions);
+      list.appendChild(row);
+    });
+    assignedSection.appendChild(list);
+  }
+  card.appendChild(assignedSection);
+
+  const addSection = document.createElement("div");
+  addSection.innerHTML = `<h3 style="font-size:14px;margin:0 0 12px;font-weight:700;">Add Lab Admin</h3>`;
+  const available = labAdminUsers.filter(u => !assignedIds.includes(u.id));
+  if(available.length === 0){
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = labAdminUsers.length === 0
+      ? "No lab admin accounts exist yet — create one in the Users tab."
+      : "All lab admin accounts are already assigned to this study.";
+    addSection.appendChild(empty);
+  } else {
+    const select = document.createElement("select");
+    select.style.cssText = "width:100%;padding:11px 13px;border:1px solid var(--border);border-radius:var(--r-sm);font-size:15px;background:var(--paper);color:var(--ink);margin-bottom:10px;";
+    available.forEach(u => {
+      const opt = document.createElement("option");
+      opt.value = u.id;
+      opt.textContent = u.email;
+      select.appendChild(opt);
+    });
+    addSection.appendChild(select);
+
+    const addBtn = document.createElement("button");
+    addBtn.className = "launchbtn";
+    addBtn.textContent = "Add Lab Admin";
+    addBtn.onclick = () => addLabAdmin(studyId, select.value);
+    addSection.appendChild(addBtn);
+  }
+  card.appendChild(addSection);
+
+  return card;
+}
+
+async function patchLabAdminIds(studyId, labAdminIds){
+  try {
+    const res = await fetch("/api/studies", {
+      method: "PATCH",
+      headers: { "content-type": "application/json", "x-user-token": state.token },
+      body: JSON.stringify({ id: studyId, updates: { labAdminIds } })
+    });
+    const data = await res.json();
+    if(!res.ok){
+      alert(data.error || "Couldn't update lab admins");
+      return;
+    }
+    const idx = state.studies.findIndex(s => s.id === studyId);
+    if(idx !== -1) state.studies[idx] = { ...state.studies[idx], labAdminIds };
+    render();
+  } catch (err) {
+    alert("Couldn't reach server");
+  }
+}
+
+function addLabAdmin(studyId, userId){
+  const study = state.studies.find(s => s.id === studyId);
+  if(!study) return;
+  const next = [...new Set([...(study.labAdminIds || []), userId])];
+  patchLabAdminIds(studyId, next);
+}
+
+function removeLabAdmin(studyId, userId){
+  const study = state.studies.find(s => s.id === studyId);
+  if(!study) return;
+  const next = (study.labAdminIds || []).filter(id => id !== userId);
+  patchLabAdminIds(studyId, next);
 }
 
 async function loadStudyForEdit(id){

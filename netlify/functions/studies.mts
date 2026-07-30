@@ -99,6 +99,11 @@ export default async (req: Request, context: Context) => {
   if (req.method === "POST") {
     const user = await resolveUser(req);
     if (!user) return Response.json({ error: "unauthorized" }, { status: 401 });
+    // A DRI scopes studies, a superadmin can on their behalf — a Lab Admin's
+    // job starts once a study (and their assignment to it) already exists.
+    if (user.role !== "client_dri" && !isSuperadmin(user)) {
+      return Response.json({ error: "only DRIs and superadmins can create studies" }, { status: 403 });
+    }
 
     const body = await req.json();
     if (!body.name || !body.passcode) {
@@ -143,12 +148,22 @@ export default async (req: Request, context: Context) => {
 
     const allowedFields = [
       "name", "dateStart", "dateEnd", "passcode", "teamCount",
-      "protocols", "environments", "objectKitCount", "signTypes", "labAdminIds"
+      "protocols", "environments", "objectKitCount", "signTypes"
     ];
     const updates = body.updates || {};
     const merged = { ...existing };
     for (const field of allowedFields) {
       if (field in updates) (merged as any)[field] = updates[field];
+    }
+    // Assigning Lab Admins to a study is a superadmin-only action, separate
+    // from the general "can this person edit the study" check above — a
+    // DRI can edit their own study's details but can't grant study access
+    // to other accounts.
+    if ("labAdminIds" in updates) {
+      if (!isSuperadmin(user)) {
+        return Response.json({ error: "only superadmins can assign lab admins to a study" }, { status: 403 });
+      }
+      merged.labAdminIds = updates.labAdminIds;
     }
     if (Array.isArray(merged.signTypes)) {
       merged.signTypes = withAutoEmoji(merged.signTypes);
