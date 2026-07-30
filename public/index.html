@@ -360,6 +360,47 @@ async function releaseKitHold(kitNumber){
   fetchKitHolds();
 }
 
+// Silently re-places the same hold to push its expiry back out. The acquire
+// endpoint is already a no-op-then-extend for the session that already owns
+// the kit, so this is just that, called on a timer — deliberately no toast
+// and no render(): those are for the interactive selection flow, and firing
+// them every few minutes in the background would yank focus out from under
+// whatever the team is typing (calibration ID, notes, ...) the same way the
+// team-name field used to.
+function renewKitHold(kitNumber){
+  fetch("/api/kit-holds", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ studyId: STUDY_ID, kitNumber, teamId: state.teamId, sessionId: HOLD_SESSION_ID })
+  }).catch(() => {});
+}
+
+let kitHoldHeartbeatTimer = null;
+function startKitHoldHeartbeat(){
+  if(kitHoldHeartbeatTimer) clearInterval(kitHoldHeartbeatTimer);
+  // Comfortably inside the server's 15-minute TTL, so one missed beat (a
+  // network blip) still leaves time for the next to land before expiry.
+  kitHoldHeartbeatTimer = setInterval(() => { if(state.objectKit) renewKitHold(state.objectKit); }, 5 * 60 * 1000);
+}
+function stopKitHoldHeartbeat(){
+  if(kitHoldHeartbeatTimer) clearInterval(kitHoldHeartbeatTimer);
+  kitHoldHeartbeatTimer = null;
+}
+
+// Runs for as long as a kit is held, independent of which app tab is open —
+// a team browsing the Weekly Document still physically has the kit in hand.
+let kitHoldHeartbeatActive = false;
+function syncKitHoldHeartbeat(){
+  const shouldRun = !!state.objectKit;
+  if(shouldRun && !kitHoldHeartbeatActive){
+    kitHoldHeartbeatActive = true;
+    startKitHoldHeartbeat();
+  } else if(!shouldRun && kitHoldHeartbeatActive){
+    kitHoldHeartbeatActive = false;
+    stopKitHoldHeartbeat();
+  }
+}
+
 async function selectObjectKit(kitNumber){
   if(state.objectKit === kitNumber) return;
   const previous = state.objectKit;
@@ -400,6 +441,7 @@ function render(){
   const prevScroll = prevMain ? prevMain.scrollTop : 0;
 
   syncKitHoldPolling();
+  syncKitHoldHeartbeat();
 
   app.innerHTML = "";
   app.appendChild(renderHeader());

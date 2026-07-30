@@ -15,10 +15,13 @@ interface Hold {
   expiresAt: string;
 }
 
-// Generous enough to cover a full field day even if a tab is left open
-// mid-capture; short enough that an abandoned hold doesn't block a kit
-// indefinitely if a team never comes back to release it.
-const HOLD_TTL_MS = 8 * 60 * 60 * 1000;
+// Deliberately short — this is a fallback for when a tab disappears without
+// ever telling the server (crash, force-quit, killed in the background),
+// not the primary mechanism for keeping a hold alive. A genuinely active
+// session renews its hold well inside this window (see the heartbeat in
+// index.html), so a real field team never sees this expire out from under
+// them; an abandoned tab frees its kit within minutes instead of hours.
+const HOLD_TTL_MS = 15 * 60 * 1000;
 
 function holdsKey(studyId: string | null): string {
   return studyId || "default";
