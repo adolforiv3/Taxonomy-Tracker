@@ -4,7 +4,7 @@ import { verifyToken } from "./utils/auth.mts";
 import { usersStore } from "./utils/store.mts";
 
 const CSV_COLUMNS = [
-  "date", "timestamp", "team_id", "protocol", "environment", "object_kit",
+  "date", "timestamp", "team_id", "location_state", "location_city", "protocol", "environment", "object_kit",
   "route", "calibration_session_id", "capture_session_id", "sign_type", "note", "session_notes"
 ];
 
@@ -38,7 +38,7 @@ function toCsv(entries: any[]): string {
     .slice()
     .sort((a, b) => String(a.timestamp).localeCompare(String(b.timestamp)))
     .map((e) => [
-      e.date, e.timestamp, e.teamId, e.protocol, e.environment, e.objectKit,
+      e.date, e.timestamp, e.teamId, e.locationState, e.locationCity, e.protocol, e.environment, e.objectKit,
       e.route, e.calibrationSessionId, e.captureSessionId, e.signType, e.note, e.sessionNotes
     ].map(csvEscape).join(","));
   return [CSV_COLUMNS.join(","), ...rows].join("\n");

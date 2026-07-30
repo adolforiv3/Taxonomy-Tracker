@@ -4,20 +4,35 @@ import { verifyToken, isSuperadmin, isLabAdmin, type UserRole } from "./utils/au
 import { usersStore } from "./utils/store.mts";
 
 // A DRI/lab admin plans out, ahead of time, exactly which team carries which
-// kit on which route/environment for a given day — replacing the earlier
+// kit (and where, geographically) for a given day — replacing the earlier
 // real-time "first team to tap the tile wins it" kit-hold system. Since a
 // human with full day-of context is doing the planning, there's no
 // concurrent-selection race to guard against; the only integrity check left
 // is catching an admin's own mistake (assigning the same kit to two teams
 // on the same day).
+//
+// A team's assignment carries one or more routes: a primary, plus optional
+// backups for when the primary is obstructed or otherwise compromising data
+// accuracy. Each route has its own environment, since a backup route may run
+// through a different environment type than the primary. The field app
+// prompts the team to pick which route they're actually using whenever more
+// than one is on offer.
+interface AssignmentRoute {
+  id: string;
+  label: string; // "Primary Route", "Backup Route 1", ...
+  route: string;
+  environment: string;
+}
+
 interface Assignment {
   id: string;
   studyId: string;
   date: string; // YYYY-MM-DD, the field day this assignment is valid for
   teamId: string; // team name, matches what field entries are tagged with
   kitNumber: number;
-  route: string;
-  environment: string;
+  locationState: string;
+  locationCity: string;
+  routes: AssignmentRoute[];
   createdBy: string;
   createdAt: string;
   updatedAt?: string;
@@ -40,6 +55,22 @@ function makeId(): string {
 
 function assignmentsKey(studyId: string): string {
   return studyId;
+}
+
+function normalizeRoutes(input: any): AssignmentRoute[] | null {
+  if (!Array.isArray(input) || input.length === 0) return null;
+  const routes: AssignmentRoute[] = [];
+  for (let i = 0; i < input.length; i++) {
+    const r = input[i] || {};
+    if (!r.environment) return null;
+    routes.push({
+      id: r.id || makeId(),
+      label: i === 0 ? "Primary Route" : `Backup Route ${i}`,
+      route: r.route || "",
+      environment: r.environment
+    });
+  }
+  return routes;
 }
 
 async function resolveUser(req: Request): Promise<User | null> {
@@ -88,8 +119,12 @@ export default async (req: Request, context: Context) => {
     if (!body.studyId || !(await canManageAssignmentsFor(user, body.studyId))) {
       return Response.json({ error: "you do not have permission to manage assignments for this study" }, { status: 403 });
     }
-    if (!body.date || !body.teamId || !body.kitNumber || !body.environment) {
-      return Response.json({ error: "date, teamId, kitNumber, and environment are required" }, { status: 400 });
+    if (!body.date || !body.teamId || !body.kitNumber || !body.locationState || !body.locationCity) {
+      return Response.json({ error: "date, teamId, kitNumber, locationState, and locationCity are required" }, { status: 400 });
+    }
+    const routes = normalizeRoutes(body.routes);
+    if (!routes) {
+      return Response.json({ error: "at least one route with an environment is required" }, { status: 400 });
     }
 
     const key = assignmentsKey(body.studyId);
@@ -113,8 +148,9 @@ export default async (req: Request, context: Context) => {
       date: body.date,
       teamId: body.teamId,
       kitNumber: Number(body.kitNumber),
-      route: body.route || "",
-      environment: body.environment,
+      locationState: body.locationState,
+      locationCity: body.locationCity,
+      routes,
       createdBy: user!.id,
       createdAt: new Date().toISOString()
     };
@@ -139,8 +175,15 @@ export default async (req: Request, context: Context) => {
     const updates = body.updates || {};
     const merged = { ...existing[idx] };
     if ("kitNumber" in updates) merged.kitNumber = Number(updates.kitNumber);
-    if ("route" in updates) merged.route = updates.route;
-    if ("environment" in updates) merged.environment = updates.environment;
+    if ("locationState" in updates) merged.locationState = updates.locationState;
+    if ("locationCity" in updates) merged.locationCity = updates.locationCity;
+    if ("routes" in updates) {
+      const routes = normalizeRoutes(updates.routes);
+      if (!routes) {
+        return Response.json({ error: "at least one route with an environment is required" }, { status: 400 });
+      }
+      merged.routes = routes;
+    }
     merged.updatedAt = new Date().toISOString();
 
     const sameDayOthers = existing.filter((a) => a.date === merged.date && a.id !== merged.id);

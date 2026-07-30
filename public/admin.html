@@ -571,7 +571,10 @@ function renderRoundBlock(round){
   const meta = document.createElement("div");
   meta.className = "round-meta";
   meta.style.marginBottom = "0";
-  meta.innerHTML = `<b>${round.length} sign${round.length===1?"":"s"}</b> · ${time} · ${first.protocol} · ${first.environment} · Kit ${first.objectKit} · Rt ${escapeHtml(first.route)}
+  const locationLabel = first.locationCity || first.locationState
+    ? ` · ${escapeHtml([first.locationCity, first.locationState].filter(Boolean).join(", "))}`
+    : "";
+  meta.innerHTML = `<b>${round.length} sign${round.length===1?"":"s"}</b> · ${time} · ${first.protocol} · ${first.environment} · Kit ${first.objectKit} · Rt ${escapeHtml(first.route)}${locationLabel}
     · Cal ${escapeHtml(first.calibrationSessionId||"")} · Cap ${escapeHtml(first.captureSessionId||"")}
     ${first.sessionNotes ? `<br>Session: "${escapeHtml(first.sessionNotes)}"` : ""}`;
   metaRow.appendChild(meta);

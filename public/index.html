@@ -228,6 +228,9 @@ let state = {
   environment: null,
   objectKit: null,
   route: "",
+  locationState: null,
+  locationCity: null,
+  assignedRoutes: [], // this team's routes for today — >1 means the field user must pick one
   calibrationSessionId: "",
   captureSessionId: "",
   sessionNotes: "",
@@ -246,7 +249,9 @@ let state = {
 let pollTimer = null;
 
 function setupComplete(){
-  return state.teamId && state.protocol;
+  // A route must be resolved (either it was the only one, or the field
+  // user explicitly picked one among backups) before setup counts as done.
+  return state.teamId && state.protocol && !!state.route;
 }
 
 /* ---------------- ASSIGNMENTS ----------------
@@ -275,8 +280,27 @@ async function fetchAssignments(){
 function selectAssignment(a){
   state.teamId = a.teamId;
   state.objectKit = a.kitNumber;
-  state.route = a.route;
-  state.environment = a.environment;
+  state.locationState = a.locationState;
+  state.locationCity = a.locationCity;
+  state.assignedRoutes = a.routes || [];
+  if(state.assignedRoutes.length === 1){
+    state.route = state.assignedRoutes[0].route;
+    state.environment = state.assignedRoutes[0].environment;
+  } else {
+    // Multiple routes on offer (primary + backup(s)) — force an explicit
+    // choice instead of silently defaulting to the primary, since a backup
+    // exists specifically for when the primary is obstructed or otherwise
+    // compromising data accuracy; the field user is the one who knows
+    // which is actually true today.
+    state.route = "";
+    state.environment = null;
+  }
+  render();
+}
+
+function selectRoute(r){
+  state.route = r.route;
+  state.environment = r.environment;
   render();
 }
 
@@ -394,6 +418,7 @@ function renderCtxBar(){
     <span><b>${state.environment}</b></span>
     <span>Kit <b>${state.objectKit}</b></span>
     <span>Rt <b>${escapeHtml(state.route)}</b></span>
+    <span>${escapeHtml(state.locationCity)}, <b>${escapeHtml(state.locationState)}</b></span>
   `;
   const btns = document.createElement("div");
   btns.className = "ctxbtns";
@@ -414,7 +439,7 @@ function renderCtxBar(){
   changeBtn.textContent = "Change";
   changeBtn.onclick = () => {
     state.teamId=null; state.protocol=null; state.environment=null; state.objectKit=null;
-    state.route="";
+    state.route=""; state.locationState=null; state.locationCity=null; state.assignedRoutes=[];
     render();
     fetchAssignments();
   };
@@ -463,19 +488,49 @@ function renderSetup(){
   back.textContent = "‹ Not my team";
   back.onclick = () => {
     state.teamId=null; state.protocol=null; state.environment=null; state.objectKit=null;
-    state.route="";
+    state.route=""; state.locationState=null; state.locationCity=null; state.assignedRoutes=[];
     render();
   };
   main.appendChild(back);
 
-  const summary = document.createElement("div");
-  summary.className = "reviewblock";
-  summary.innerHTML = `
+  const locationLine = document.createElement("div");
+  locationLine.className = "reviewblock";
+  locationLine.innerHTML = `
     <div class="rlabel">Assigned Today</div>
     <div class="rvalue">${escapeHtml(state.teamId)}</div>
-    <div class="entry-meta" style="margin-top:4px;">Kit ${state.objectKit} · Route ${escapeHtml(state.route)} · ${escapeHtml(state.environment)}</div>
+    <div class="entry-meta" style="margin-top:4px;">Kit ${state.objectKit} · ${escapeHtml(state.locationCity)}, ${escapeHtml(state.locationState)}</div>
   `;
-  main.appendChild(summary);
+  main.appendChild(locationLine);
+
+  // A backup route exists specifically for when the primary is obstructed
+  // or otherwise compromising accuracy, so this can't be defaulted — the
+  // field user is the one who actually knows which is true right now.
+  if(state.assignedRoutes.length > 1 && !state.route){
+    main.appendChild(rowTitle("Which route are you using?"));
+    state.assignedRoutes.forEach(r => {
+      const card = document.createElement("button");
+      card.className = "tile wide";
+      card.style.cssText = "text-align:left;display:block;padding:14px 16px;margin-bottom:10px;height:auto;";
+      card.innerHTML = `<div style="font-weight:700;">${escapeHtml(r.label)}</div>
+        <div style="font-size:12.5px;font-weight:500;color:var(--ink-soft);margin-top:2px;">${escapeHtml(r.route || "No route name set")} · ${escapeHtml(r.environment)}</div>`;
+      card.onclick = () => selectRoute(r);
+      main.appendChild(card);
+    });
+    return main;
+  }
+
+  const routeLine = document.createElement("div");
+  routeLine.className = "entry-meta";
+  routeLine.style.cssText = "margin:-10px 0 16px 2px;";
+  routeLine.textContent = `Route: ${state.route || "—"} · ${state.environment || "—"}`;
+  if(state.assignedRoutes.length > 1){
+    const switchLink = document.createElement("button");
+    switchLink.textContent = "Change Route";
+    switchLink.style.cssText = "background:none;border:none;color:var(--teal);font-size:12.5px;font-weight:600;margin-left:8px;padding:0;cursor:pointer;";
+    switchLink.onclick = () => { state.route=""; state.environment=null; render(); };
+    routeLine.appendChild(switchLink);
+  }
+  main.appendChild(routeLine);
 
   main.appendChild(rowTitle("Protocol"));
   main.appendChild(tileGrid(PROTOCOLS.map(m=>({label:m, wide:true, sel: state.protocol===m, onClick:()=>{state.protocol=m; render();}}))));
@@ -617,6 +672,7 @@ function renderFinishReviewFinal(){
     <div class="rlabel">Session</div>
     <div class="rvalue">Team ${state.teamId} · ${state.protocol} · ${state.environment}</div>
     <div class="entry-meta">Kit ${state.objectKit} · Route ${escapeHtml(state.route)}</div>
+    <div class="entry-meta">${escapeHtml(state.locationCity)}, ${escapeHtml(state.locationState)}</div>
     <div class="entry-meta" style="margin-top:8px;">Cal ${escapeHtml(state.calibrationSessionId)} · Cap ${escapeHtml(state.captureSessionId)}</div>
     ${state.sessionNotes ? `<div class="entry-note">Note: "${escapeHtml(state.sessionNotes)}"</div>` : ""}
   `;
@@ -705,6 +761,8 @@ function newCartItem(signType){
     environment: state.environment,
     objectKit: state.objectKit,
     route: state.route,
+    locationState: state.locationState,
+    locationCity: state.locationCity,
     signType: signType
   };
 }
@@ -770,6 +828,9 @@ async function finishRound(){
     state.environment = null;
     state.objectKit = null;
     state.route = "";
+    state.locationState = null;
+    state.locationCity = null;
+    state.assignedRoutes = [];
     showToast(`Run complete — ${count} entries saved to the weekly document`);
     render();
   } catch (err) {

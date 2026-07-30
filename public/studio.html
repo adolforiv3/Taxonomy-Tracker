@@ -144,7 +144,8 @@ let state = {
   managingLabAdminsFor: null, // study id, or null (superadmin only)
   assignmentDate: new Date().toISOString().slice(0, 10),
   assignments: [],
-  assignmentsLoading: false
+  assignmentsLoading: false,
+  assignmentRoutesDraft: [{ route: "", environment: "" }] // primary + optional backups, built up in the create form
 };
 
 const app = document.getElementById("app");
@@ -859,8 +860,13 @@ function renderStudyList(){
   return card;
 }
 
+function blankRoutesDraft(){
+  return [{ route: "", environment: "" }];
+}
+
 function openAssignments(studyId){
   state.managingAssignmentsFor = studyId;
+  state.assignmentRoutesDraft = blankRoutesDraft();
   render();
   fetchAssignmentsForStudy(studyId);
 }
@@ -929,9 +935,6 @@ function renderAssignmentsView(){
   const teamField = fieldInput("Team Name", "text", "", () => {}, "e.g. Team A");
   createSection.appendChild(teamField);
 
-  const row = document.createElement("div");
-  row.className = "row2";
-
   const kitWrap = document.createElement("div");
   kitWrap.className = "field";
   kitWrap.innerHTML = `<label>Kit Number</label>`;
@@ -944,25 +947,17 @@ function renderAssignmentsView(){
     kitSelect.appendChild(opt);
   }
   kitWrap.appendChild(kitSelect);
-  row.appendChild(kitWrap);
+  createSection.appendChild(kitWrap);
 
-  const envWrap = document.createElement("div");
-  envWrap.className = "field";
-  envWrap.innerHTML = `<label>Environment</label>`;
-  const envSelect = document.createElement("select");
-  envSelect.style.cssText = kitSelect.style.cssText;
-  study.environments.forEach(e => {
-    const opt = document.createElement("option");
-    opt.value = e;
-    opt.textContent = e;
-    envSelect.appendChild(opt);
-  });
-  envWrap.appendChild(envSelect);
-  row.appendChild(envWrap);
-  createSection.appendChild(row);
+  const locRow = document.createElement("div");
+  locRow.className = "row2";
+  const stateField = fieldInput("State", "text", "", () => {}, "e.g. Colorado");
+  const cityField = fieldInput("City", "text", "", () => {}, "e.g. Denver");
+  locRow.appendChild(stateField);
+  locRow.appendChild(cityField);
+  createSection.appendChild(locRow);
 
-  const routeField = fieldInput("Route", "text", "", () => {}, "e.g. Main St Loop");
-  createSection.appendChild(routeField);
+  createSection.appendChild(routesEditor(state.assignmentRoutesDraft, study.environments));
 
   const addErr = document.createElement("div");
   addErr.style.cssText = "color:var(--red);font-size:12.5px;min-height:16px;margin-bottom:4px;";
@@ -973,13 +968,14 @@ function renderAssignmentsView(){
   addBtn.textContent = "Add Assignment";
   addBtn.onclick = () => {
     const teamId = teamField.querySelector("input").value.trim();
-    const route = routeField.querySelector("input").value.trim();
-    if(!teamId){
-      addErr.textContent = "Team name is required";
+    const locationState = stateField.querySelector("input").value.trim();
+    const locationCity = cityField.querySelector("input").value.trim();
+    if(!teamId || !locationState || !locationCity){
+      addErr.textContent = "Team name, state, and city are required";
       return;
     }
     addErr.textContent = "";
-    createAssignment(studyId, teamId, kitSelect.value, route, envSelect.value, addErr);
+    createAssignment(studyId, teamId, kitSelect.value, locationState, locationCity, state.assignmentRoutesDraft, addErr);
   };
   createSection.appendChild(addBtn);
   card.appendChild(createSection);
@@ -1003,10 +999,14 @@ function renderAssignmentsView(){
     state.assignments.forEach(a => {
       const row = document.createElement("div");
       row.className = "studyrow";
+      const routesSummary = (a.routes || []).map(r =>
+        `${escapeHtml(r.label)}: ${escapeHtml(r.route || "no route name")} (${escapeHtml(r.environment)})`
+      ).join(" · ");
       row.innerHTML = `
         <div>
           <div class="name">${escapeHtml(a.teamId)}</div>
-          <div class="meta">Kit ${a.kitNumber} · ${escapeHtml(a.route || "No route set")} · ${escapeHtml(a.environment)}</div>
+          <div class="meta">Kit ${a.kitNumber} · ${escapeHtml(a.locationCity)}, ${escapeHtml(a.locationState)}</div>
+          <div class="meta">${routesSummary}</div>
         </div>
       `;
       const actions = document.createElement("div");
@@ -1026,12 +1026,76 @@ function renderAssignmentsView(){
   return card;
 }
 
-async function createAssignment(studyId, teamId, kitNumber, route, environment, errEl){
+function routesEditor(routes, environments){
+  const wrap = document.createElement("div");
+  wrap.className = "field";
+  const lbl = document.createElement("label");
+  lbl.textContent = `Routes (${routes.length})`;
+  wrap.appendChild(lbl);
+
+  const hint = document.createElement("div");
+  hint.style.cssText = "font-size:11.5px;color:var(--ink-soft);margin-bottom:8px;margin-top:-4px;line-height:1.4;";
+  hint.textContent = "The first route is the Primary. Add backups for when the primary is obstructed or is compromising data accuracy — each can have its own environment.";
+  wrap.appendChild(hint);
+
+  routes.forEach((r, i) => {
+    if(!r.environment) r.environment = environments[0] || "";
+
+    const row = document.createElement("div");
+    row.style.cssText = "border:1px solid var(--border);border-radius:var(--r-sm);padding:12px;margin-bottom:10px;";
+
+    const label = document.createElement("div");
+    label.style.cssText = "font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--teal-dark);margin-bottom:8px;";
+    label.textContent = i === 0 ? "Primary Route" : `Backup Route ${i}`;
+    row.appendChild(label);
+
+    const routeInput = document.createElement("input");
+    routeInput.type = "text";
+    routeInput.placeholder = "e.g. Main St Loop";
+    routeInput.value = r.route;
+    routeInput.style.cssText = "width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:var(--r-sm);font-size:14px;background:var(--paper);color:var(--ink);margin-bottom:8px;";
+    routeInput.oninput = (e) => { r.route = e.target.value; };
+    row.appendChild(routeInput);
+
+    const envSelect = document.createElement("select");
+    envSelect.style.cssText = "width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:var(--r-sm);font-size:14px;background:var(--paper);color:var(--ink);";
+    environments.forEach(e => {
+      const opt = document.createElement("option");
+      opt.value = e;
+      opt.textContent = e;
+      if(e === r.environment) opt.selected = true;
+      envSelect.appendChild(opt);
+    });
+    envSelect.onchange = (e) => { r.environment = e.target.value; };
+    row.appendChild(envSelect);
+
+    if(routes.length > 1){
+      const rmBtn = document.createElement("button");
+      rmBtn.className = "rmbtn";
+      rmBtn.textContent = "Remove Route";
+      rmBtn.style.cssText += "margin-top:8px;";
+      rmBtn.onclick = () => { routes.splice(i, 1); render(); };
+      row.appendChild(rmBtn);
+    }
+
+    wrap.appendChild(row);
+  });
+
+  const addBtn = document.createElement("button");
+  addBtn.className = "addbtn";
+  addBtn.textContent = "+ Add Backup Route";
+  addBtn.onclick = () => { routes.push({ route: "", environment: environments[0] || "" }); render(); };
+  wrap.appendChild(addBtn);
+
+  return wrap;
+}
+
+async function createAssignment(studyId, teamId, kitNumber, locationState, locationCity, routes, errEl){
   try {
     const res = await fetch("/api/assignments", {
       method: "POST",
       headers: { "content-type": "application/json", "x-user-token": state.token },
-      body: JSON.stringify({ studyId, date: state.assignmentDate, teamId, kitNumber, route, environment })
+      body: JSON.stringify({ studyId, date: state.assignmentDate, teamId, kitNumber, locationState, locationCity, routes })
     });
     const data = await res.json();
     if(!res.ok){
@@ -1039,6 +1103,7 @@ async function createAssignment(studyId, teamId, kitNumber, route, environment, 
       else alert(data.error || "Couldn't create assignment");
       return;
     }
+    state.assignmentRoutesDraft = blankRoutesDraft();
     fetchAssignmentsForStudy(studyId);
   } catch (err) {
     if(errEl) errEl.textContent = "Couldn't reach server";
