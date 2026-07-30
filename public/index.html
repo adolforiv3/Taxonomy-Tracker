@@ -266,7 +266,6 @@ async function loadStudy(){
     SIGN_EMOJI = {};
     s.signTypes.forEach(t => { SIGN_EMOJI[t.name] = t.emoji; });
     SIGN_TYPES = Object.keys(SIGN_EMOJI).sort((a,b) => a.localeCompare(b));
-    state.teamId = Number(localStorage.getItem("tl_teamId_" + STUDY_ID)) || null;
     state.studyLoaded = true;
   } catch (err) {
     state.studyError = true;
@@ -741,7 +740,7 @@ async function finishRound(){
     const res = await fetch("/api/entries", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ entries: finalized })
+      body: JSON.stringify({ entries: finalized, teamId: state.teamId })
     });
     if(!res.ok) throw new Error("Save failed");
 
