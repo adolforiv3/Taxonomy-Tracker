@@ -174,6 +174,20 @@
 const STUDY_MATCH = window.location.pathname.match(/^\/s\/([^\/]+)/);
 const STUDY_ID = STUDY_MATCH ? STUDY_MATCH[1] : "default";
 
+// Identifies this specific browser session for kit-hold ownership, so a hold
+// placed by this tab can be released by this tab (and only this tab) later.
+// Persisted in sessionStorage so a re-render or short reload doesn't orphan
+// an in-progress hold, but a fresh tab always gets its own identity.
+const HOLD_SESSION_ID = (() => {
+  const key = "tl_holdSession";
+  let id = sessionStorage.getItem(key);
+  if (!id) {
+    id = (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2)) + Date.now().toString(36);
+    sessionStorage.setItem(key, id);
+  }
+  return id;
+})();
+
 /* ---------------- TAXONOMY (defaults for the root app; overridden per-study) ---------------- */
 let SIGN_EMOJI = {
   "Construction Sign": "🚧",
@@ -242,13 +256,112 @@ let state = {
   weekly: { week: isoWeek(new Date().toISOString().slice(0,10)), entries: [], loading: false },
   editingId: null,
   editDraft: null,
-  toast: null
+  toast: null,
+  kitHolds: [], // [{kitNumber, teamId, sessionId}] currently held by anyone, from the server
+  kitHoldsLoading: false
 };
 
 let pollTimer = null;
+let kitHoldPollTimer = null;
 
 function setupComplete(){
   return state.teamId && state.protocol && state.environment && state.objectKit && state.route.trim();
+}
+
+/* ---------------- KIT HOLDS ----------------
+   A kit is physical equipment shared across teams, so once a team picks one
+   for an open (unsubmitted) run, no one else should be able to pick the same
+   kit until that run is finished or the hold expires. */
+function kitsHeldByOthers(){
+  return new Set(
+    state.kitHolds
+      .filter(h => !(h.teamId === state.teamId && h.sessionId === HOLD_SESSION_ID))
+      .map(h => h.kitNumber)
+  );
+}
+
+async function fetchKitHolds(){
+  state.kitHoldsLoading = true;
+  try {
+    const res = await fetch(`/api/kit-holds?study=${encodeURIComponent(STUDY_ID)}`);
+    if(res.ok){
+      const data = await res.json();
+      state.kitHolds = data.holds || [];
+    }
+  } catch (err) {
+    // keep last known list — a stale hold list just means a taken kit briefly
+    // still looks available, which the acquire attempt below will catch.
+  }
+  state.kitHoldsLoading = false;
+  render();
+}
+
+function startKitHoldPolling(){
+  if(kitHoldPollTimer) clearInterval(kitHoldPollTimer);
+  kitHoldPollTimer = setInterval(fetchKitHolds, 8000);
+}
+function stopKitHoldPolling(){
+  if(kitHoldPollTimer) clearInterval(kitHoldPollTimer);
+  kitHoldPollTimer = null;
+}
+
+// Keeps polling running only while the kit-selection tile grid is actually
+// on screen — once a team has a kit, their hold is already placed and other
+// teams' picks are no longer this tab's concern until they hit "Change".
+let kitHoldPollingActive = false;
+function syncKitHoldPolling(){
+  const shouldPoll = state.studyLoaded && !state.studyError && state.tab === "log" && !state.objectKit;
+  if(shouldPoll && !kitHoldPollingActive){
+    kitHoldPollingActive = true;
+    fetchKitHolds();
+    startKitHoldPolling();
+  } else if(!shouldPoll && kitHoldPollingActive){
+    kitHoldPollingActive = false;
+    stopKitHoldPolling();
+  }
+}
+
+async function acquireKitHold(kitNumber){
+  try {
+    const res = await fetch("/api/kit-holds", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ studyId: STUDY_ID, kitNumber, teamId: state.teamId, sessionId: HOLD_SESSION_ID })
+    });
+    if(res.ok) return true;
+    const data = await res.json().catch(() => ({}));
+    showToast(data.error || `Kit ${kitNumber} is already in use`);
+    return false;
+  } catch (err) {
+    showToast("Couldn't reserve that kit — check connection and try again");
+    return false;
+  } finally {
+    fetchKitHolds();
+  }
+}
+
+async function releaseKitHold(kitNumber){
+  if(!kitNumber) return;
+  try {
+    await fetch("/api/kit-holds", {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ studyId: STUDY_ID, kitNumber, teamId: state.teamId, sessionId: HOLD_SESSION_ID })
+    });
+  } catch (err) {
+    // best-effort — an unreleased hold still self-expires server-side
+  }
+  fetchKitHolds();
+}
+
+async function selectObjectKit(kitNumber){
+  if(state.objectKit === kitNumber) return;
+  const previous = state.objectKit;
+  const acquired = await acquireKitHold(kitNumber);
+  if(!acquired) return;
+  if(previous && previous !== kitNumber) releaseKitHold(previous);
+  state.objectKit = kitNumber;
+  render();
 }
 
 /* ---------------- STUDY LOADING ---------------- */
@@ -279,6 +392,8 @@ const app = document.getElementById("app");
 function render(){
   const prevMain = app.querySelector("main");
   const prevScroll = prevMain ? prevMain.scrollTop : 0;
+
+  syncKitHoldPolling();
 
   app.innerHTML = "";
   app.appendChild(renderHeader());
@@ -386,9 +501,11 @@ function renderCtxBar(){
   changeBtn.className = "changebtn";
   changeBtn.textContent = "Change";
   changeBtn.onclick = () => {
+    const heldKit = state.objectKit;
     state.protocol=null; state.environment=null; state.objectKit=null;
     state.route="";
     render();
+    if(heldKit) releaseKitHold(heldKit);
   };
   btns.appendChild(changeBtn);
 
@@ -434,8 +551,20 @@ function renderSetup(){
     main.appendChild(rowTitle("Protocol"));
     main.appendChild(tileGrid(PROTOCOLS.map(m=>({label:m, wide:true, sel: state.protocol===m, onClick:()=>{state.protocol=m; render();}}))));
 
-    main.appendChild(rowTitle("Object Kit"));
-    main.appendChild(tileGrid(OBJECT_KITS.map(k=>({label:"Kit "+k, sel: state.objectKit===k, onClick:()=>{state.objectKit=k; render();}}))));
+    const heldByOthers = kitsHeldByOthers();
+    const availableKits = OBJECT_KITS.filter(k => k === state.objectKit || !heldByOthers.has(k));
+    main.appendChild(rowTitle(`Object Kit${state.kitHoldsLoading ? " (checking availability…)" : ""}`));
+    if(availableKits.length === 0 && OBJECT_KITS.length > 0){
+      const none = document.createElement("div");
+      none.style.cssText = "font-size:13px;color:var(--ink-soft);padding:8px 2px;";
+      none.textContent = "All kits are currently in use by other teams. Check back shortly.";
+      main.appendChild(none);
+    } else {
+      main.appendChild(tileGrid(availableKits.map(k=>({label:"Kit "+k, sel: state.objectKit===k, onClick:()=>{
+        if(!state.teamId){ showToast("Enter your team name first"); return; }
+        selectObjectKit(k);
+      }}))));
+    }
 
     main.appendChild(rowTitle("Route"));
     const routeInput = document.createElement("input");
