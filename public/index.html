@@ -91,6 +91,9 @@
   .tile:active{transform:scale(0.97);}
   .tile.selected{background:var(--ink);color:var(--card);border-color:var(--ink);box-shadow:var(--shadow-md);}
   .tile.wide{grid-column:1/-1;}
+  .tile.unavailable{background:var(--paper);color:var(--ink-soft);box-shadow:none;opacity:.55;cursor:not-allowed;}
+  .tile.unavailable:active{transform:none;}
+  .tile .tile-sub{display:block;font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-top:3px;}
 
   .icon-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;}
   .icon-tile{aspect-ratio:1;background:var(--card);border:1px solid var(--border);border-radius:var(--r-md);
@@ -552,19 +555,19 @@ function renderSetup(){
     main.appendChild(tileGrid(PROTOCOLS.map(m=>({label:m, wide:true, sel: state.protocol===m, onClick:()=>{state.protocol=m; render();}}))));
 
     const heldByOthers = kitsHeldByOthers();
-    const availableKits = OBJECT_KITS.filter(k => k === state.objectKit || !heldByOthers.has(k));
     main.appendChild(rowTitle(`Object Kit${state.kitHoldsLoading ? " (checking availability…)" : ""}`));
-    if(availableKits.length === 0 && OBJECT_KITS.length > 0){
-      const none = document.createElement("div");
-      none.style.cssText = "font-size:13px;color:var(--ink-soft);padding:8px 2px;";
-      none.textContent = "All kits are currently in use by other teams. Check back shortly.";
-      main.appendChild(none);
-    } else {
-      main.appendChild(tileGrid(availableKits.map(k=>({label:"Kit "+k, sel: state.objectKit===k, onClick:()=>{
-        if(!state.teamId){ showToast("Enter your team name first"); return; }
-        selectObjectKit(k);
-      }}))));
-    }
+    main.appendChild(tileGrid(OBJECT_KITS.map(k=>{
+      const unavailable = heldByOthers.has(k) && state.objectKit !== k;
+      return {
+        label: "Kit "+k,
+        sel: state.objectKit===k,
+        unavailable,
+        onClick: () => {
+          if(!state.teamId){ showToast("Enter your team name first"); return; }
+          selectObjectKit(k);
+        }
+      };
+    })));
 
     main.appendChild(rowTitle("Route"));
     const routeInput = document.createElement("input");
@@ -607,18 +610,23 @@ function rowTitle(txt){
   return d;
 }
 
-function tile(label, selected, onClick, wide){
+function tile(label, selected, onClick, wide, unavailable, subLabel){
   const b = document.createElement("button");
-  b.className = "tile" + (selected?" selected":"") + (wide?" wide":"");
-  b.textContent = label;
-  b.onclick = onClick;
+  b.className = "tile" + (selected?" selected":"") + (wide?" wide":"") + (unavailable?" unavailable":"");
+  if(unavailable){
+    b.innerHTML = `${escapeHtml(label)}<span class="tile-sub">${escapeHtml(subLabel || "In Use")}</span>`;
+    b.disabled = true;
+  } else {
+    b.textContent = label;
+    b.onclick = onClick;
+  }
   return b;
 }
 
 function tileGrid(items){
   const g = document.createElement("div");
   g.className = "grid";
-  items.forEach(it => g.appendChild(tile(it.label, it.sel, it.onClick, it.wide)));
+  items.forEach(it => g.appendChild(tile(it.label, it.sel, it.onClick, it.wide, it.unavailable, it.subLabel)));
   return g;
 }
 
