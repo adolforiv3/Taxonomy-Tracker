@@ -3,9 +3,13 @@ import { getStore } from "@netlify/blobs";
 import { verifyToken } from "./utils/auth.mts";
 import { usersStore } from "./utils/store.mts";
 
+// One row per run (route + protocol + session), not one row per sign
+// observed — matches the run-log format the team already reads day to day.
+// "Offload Status" is left blank for the team to fill in by hand, same as
+// their existing sheet; this app has no notion of physical device offload.
 const CSV_COLUMNS = [
-  "date", "timestamp", "team_id", "location_state", "location_city", "protocol", "environment", "object_kit",
-  "route", "calibration_session_id", "capture_session_id", "sign_type", "note", "session_notes"
+  "date", "team_id", "location_state", "location_city", "route", "environment", "protocol",
+  "object_kit", "calibration_session_id", "capture_session_id", "signs_observed", "offload_status", "notes"
 ];
 
 // Root app (no studyId) keeps its original unprefixed key scheme so existing data
@@ -33,15 +37,88 @@ function csvEscape(v: unknown): string {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
+// A "run" is every entry sharing a team + capture (or calibration) session —
+// the same grouping admin.html's team accordion already uses to fold
+// individual sign observations back into the session they were captured in.
+function groupIntoRuns(entries: any[]): any[][] {
+  const map = new Map<string, any[]>();
+  entries.forEach((e) => {
+    const key = `${e.teamId}::${e.captureSessionId || e.calibrationSessionId || e.id}`;
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(e);
+  });
+  return [...map.values()];
+}
+
+function summarizeSigns(run: any[]): string {
+  const counts = new Map<string, number>();
+  run.forEach((e) => counts.set(e.signType, (counts.get(e.signType) || 0) + 1));
+  return [...counts.entries()].map(([signType, n]) => (n > 1 ? `${signType} x${n}` : signType)).join(", ");
+}
+
 function toCsv(entries: any[]): string {
-  const rows = entries
+  const runs = groupIntoRuns(entries)
     .slice()
-    .sort((a, b) => String(a.timestamp).localeCompare(String(b.timestamp)))
-    .map((e) => [
-      e.date, e.timestamp, e.teamId, e.locationState, e.locationCity, e.protocol, e.environment, e.objectKit,
-      e.route, e.calibrationSessionId, e.captureSessionId, e.signType, e.note, e.sessionNotes
-    ].map(csvEscape).join(","));
+    .sort((a, b) => String(a[0].timestamp).localeCompare(String(b[0].timestamp)));
+  const rows = runs.map((run) => {
+    const first = run[0];
+    return [
+      first.date, first.teamId, first.locationState, first.locationCity, first.route, first.environment,
+      first.protocol, first.objectKit, first.calibrationSessionId, first.captureSessionId,
+      summarizeSigns(run), "", first.sessionNotes
+    ].map(csvEscape).join(",");
+  });
   return [CSV_COLUMNS.join(","), ...rows].join("\n");
+}
+
+// The companion "how many of each sign type, per day" tally the team keeps
+// alongside the run log — one table per team (teams often work different
+// days/routes), rows for every taxonomy item the study defines (so an item
+// nobody saw all week still shows as a zero, not a missing row), columns for
+// each day that team actually logged something, plus a running total.
+async function fetchStudySignTypes(studyId: string | null): Promise<string[] | null> {
+  if (!studyId || studyId === "default") return null;
+  const studiesStore = getStore({ name: "studies", consistency: "strong" });
+  const study = (await studiesStore.get(studyId, { type: "json" })) as any | null;
+  if (!study || !Array.isArray(study.signTypes)) return null;
+  return study.signTypes.map((t: any) => t.name);
+}
+
+function toTallyCsv(entries: any[], canonicalSignTypes: string[] | null): string {
+  const byTeam = new Map<string, any[]>();
+  entries.forEach((e) => {
+    if (!byTeam.has(e.teamId)) byTeam.set(e.teamId, []);
+    byTeam.get(e.teamId)!.push(e);
+  });
+
+  const teamBlocks = [...byTeam.keys()].sort().map((teamId) => {
+    const teamEntries = byTeam.get(teamId)!;
+    const dates = [...new Set(teamEntries.map((e) => e.date))].sort();
+
+    const signTypes = canonicalSignTypes && canonicalSignTypes.length
+      ? [...canonicalSignTypes]
+      : [];
+    const counts = new Map<string, Map<string, number>>();
+    teamEntries.forEach((e) => {
+      if (!counts.has(e.signType)) counts.set(e.signType, new Map());
+      if (!signTypes.includes(e.signType)) signTypes.push(e.signType);
+      const perDate = counts.get(e.signType)!;
+      perDate.set(e.date, (perDate.get(e.date) || 0) + 1);
+    });
+    signTypes.sort((a, b) => a.localeCompare(b));
+
+    const header = ["Signs", ...dates, "Total"].map(csvEscape).join(",");
+    const rows = signTypes.map((s) => {
+      const perDate = counts.get(s) || new Map<string, number>();
+      const dayCounts = dates.map((d) => perDate.get(d) || 0);
+      const total = dayCounts.reduce((sum, n) => sum + n, 0);
+      return [s, ...dayCounts, total].map(csvEscape).join(",");
+    });
+
+    return [`Team: ${teamId}`, header, ...rows].join("\n");
+  });
+
+  return teamBlocks.join("\n\n");
 }
 
 // Resolves the requesting lab admin/superadmin from the bearer token, if present.
@@ -75,10 +152,19 @@ export default async (req: Request, context: Context) => {
     const entries = values.filter(Boolean);
 
     if (url.searchParams.get("format") === "csv") {
+      if (url.searchParams.get("view") === "tally") {
+        const canonicalSignTypes = await fetchStudySignTypes(studyId);
+        return new Response(toTallyCsv(entries, canonicalSignTypes), {
+          headers: {
+            "content-type": "text/csv",
+            "content-disposition": `attachment; filename="taxonomy_tally_week_${week}.csv"`
+          }
+        });
+      }
       return new Response(toCsv(entries), {
         headers: {
           "content-type": "text/csv",
-          "content-disposition": `attachment; filename="taxonomy_week_${week}.csv"`
+          "content-disposition": `attachment; filename="taxonomy_runs_week_${week}.csv"`
         }
       });
     }
