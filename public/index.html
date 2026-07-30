@@ -243,7 +243,10 @@ let state = {
   studyLoaded: STUDY_ID === "default",
   studyError: false,
   date: new Date().toISOString().slice(0,10),
-  teamId: localStorage.getItem("tl_teamId_" + STUDY_ID) || null,
+  // Deliberately not persisted — a page refresh should start a genuinely
+  // clean session (team name, protocol, kit, route all blank again), not
+  // silently resume whatever was picked before.
+  teamId: null,
   teamIdInput: "",
   protocol: null,
   environment: null,
@@ -550,8 +553,6 @@ function renderSetup(){
     // catch up once typing pauses, so that happens on blur instead.
     teamInput.oninput = (e) => {
       state.teamId = e.target.value.trim() || null;
-      if(state.teamId) localStorage.setItem("tl_teamId_" + STUDY_ID, state.teamId);
-      else localStorage.removeItem("tl_teamId_" + STUDY_ID);
     };
     teamInput.onblur = () => { render(); };
     main.appendChild(teamInput);
@@ -1168,6 +1169,20 @@ function escapeHtml(s){
   return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 }
 
+// A refresh means a genuinely fresh session (see the teamId/objectKit reset
+// above), so any kit hold this tab was still carrying from before the
+// refresh needs to go with it — otherwise it'd sit reserved and invisible
+// until its 8-hour expiry, blocking other teams from a kit nobody's UI
+// still shows as selected.
+function releaseAllMyHolds(){
+  fetch("/api/kit-holds", {
+    method: "DELETE",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ studyId: STUDY_ID, sessionId: HOLD_SESSION_ID })
+  }).catch(() => {});
+}
+
+releaseAllMyHolds();
 render();
 if(STUDY_ID !== "default") loadStudy();
 </script>

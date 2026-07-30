@@ -81,15 +81,30 @@ export default async (req: Request, context: Context) => {
   if (req.method === "DELETE") {
     const body = await req.json();
     const studyId = body.studyId || null;
-    const kitNumber = Number(body.kitNumber);
-    const teamId = body.teamId;
     const sessionId = body.sessionId;
+    if (!sessionId) {
+      return Response.json({ error: "sessionId is required" }, { status: 400 });
+    }
 
     const key = holdsKey(studyId);
     const holds = (await store.get(key, { type: "json" }) as Hold[] | null) || [];
-    const next = holds.filter(
-      (h) => !isExpired(h, now) && !(h.kitNumber === kitNumber && h.teamId === teamId && h.sessionId === sessionId)
-    );
+
+    let next: Hold[];
+    if (body.kitNumber !== undefined) {
+      // Release one specific kit this session holds (e.g. switching kits).
+      const kitNumber = Number(body.kitNumber);
+      const teamId = body.teamId;
+      next = holds.filter(
+        (h) => !isExpired(h, now) && !(h.kitNumber === kitNumber && h.teamId === teamId && h.sessionId === sessionId)
+      );
+    } else {
+      // No kitNumber given — release every hold this browser session holds
+      // in this study. Used on page load: sessionId alone (persisted across
+      // a refresh) uniquely identifies this tab, so it's safe to clear
+      // anything it was still holding from before the refresh, matching a
+      // refresh's intent to start the whole session over from scratch.
+      next = holds.filter((h) => !isExpired(h, now) && h.sessionId !== sessionId);
+    }
 
     await store.setJSON(key, next);
     return Response.json({ ok: true });
