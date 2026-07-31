@@ -420,7 +420,7 @@ function renderStudyError(){
 
 function renderLocationMissing(){
   const main = document.createElement("main");
-  main.innerHTML = `<div class="loadingwrap">No location has been scheduled for this week yet (${escapeHtml(isoWeek(state.date))}).<br><br>Ask your DRI to schedule this week's state/city in the Study Builder before logging can start.</div>`;
+  main.innerHTML = `<div class="loadingwrap">No location has been scheduled for this week yet (${escapeHtml(isoWeek(state.date))}).<br><br>Contact your Lab Admin — this week's state/city needs to be scheduled in the Study Builder before logging can start.</div>`;
   return main;
 }
 
