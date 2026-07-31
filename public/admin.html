@@ -551,7 +551,7 @@ function renderDashboard(){
     </div>
     <button class="refreshbtn" id="refreshBtn">${state.loading ? "Refreshing…" : "↻ Refresh"}</button>
     <span class="updated">${state.lastUpdated ? "Updated " + state.lastUpdated.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : ""}</span>
-    ${isAdmin() ? '<button class="exportbtn" id="exportRunsBtn">⬇ Run Log (Excel)</button><button class="exportbtn" id="exportTallyBtn" style="margin-left:8px;">⬇ Taxonomy Tally (Excel)</button>' : ''}
+    ${isAdmin() ? '<button class="exportbtn" id="exportRunsBtn">⬇ Run Log</button><button class="exportbtn" id="exportTallyBtn" style="margin-left:8px;">⬇ Taxonomy Tally</button>' : ''}
   `;
   main.appendChild(topbar);
 
