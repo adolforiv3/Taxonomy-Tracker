@@ -1034,6 +1034,30 @@ function renderAssignmentsView(){
   dateField.appendChild(dateInput);
   card.appendChild(dateField);
 
+  // The field app hard-blocks on a missing location for the current week —
+  // surfacing that status right here (where a Lab Admin is actively setting
+  // up a field day) beats them discovering it only after a team can't get
+  // past the field app's blocked screen.
+  const week = isoWeek(state.assignmentDate);
+  const scheduledLoc = (study.locationSchedule || []).find(l => l.week === week);
+  const locBanner = document.createElement("div");
+  locBanner.style.cssText = "border-radius:var(--r-sm);padding:10px 14px;font-size:13px;font-weight:600;margin-bottom:16px;line-height:1.4;";
+  if(scheduledLoc){
+    locBanner.style.cssText += "background:var(--teal-bg);color:var(--teal-dark);";
+    locBanner.textContent = `📍 Location for Week ${week}: ${scheduledLoc.city}, ${scheduledLoc.state}`;
+  } else {
+    locBanner.style.cssText += "background:var(--red-bg);color:var(--red);";
+    const msg = document.createElement("span");
+    msg.textContent = `⚠ No location scheduled for Week ${week} yet — the field app will stay blocked for teams until one is added. `;
+    locBanner.appendChild(msg);
+    const jumpBtn = document.createElement("button");
+    jumpBtn.textContent = "Set it in Edit Study →";
+    jumpBtn.style.cssText = "background:none;border:none;color:var(--red);font-weight:700;text-decoration:underline;padding:0;cursor:pointer;font-size:13px;";
+    jumpBtn.onclick = () => { state.managingAssignmentsFor = null; loadStudyForEdit(studyId); };
+    locBanner.appendChild(jumpBtn);
+  }
+  card.appendChild(locBanner);
+
   if(!study.objectKitCount || !study.environments || study.environments.length === 0){
     const warn = document.createElement("div");
     warn.style.cssText = "font-size:13px;color:var(--ink-soft);padding:10px 0;line-height:1.5;";
