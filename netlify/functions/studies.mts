@@ -103,6 +103,23 @@ function canViewStudy(user: User | null, study: Study): boolean {
   return false;
 }
 
+// Editing a study's operational details (protocols, locations, taxonomy,
+// ...) is available to the creating DRI, an assigned Lab Admin, or a
+// superadmin — a Lab Admin pivoting a week's location shouldn't have to
+// wait on a DRI to respond while the team is standing in the field.
+// Creating a new study and deleting/granting-access-to an existing one are
+// stricter, separate checks (see the POST handler and canManageStudy).
+function canEditStudy(user: User | null, study: Study): boolean {
+  if (!user) return false;
+  if (isSuperadmin(user)) return true;
+  if (study.createdBy === user.id) return true;
+  if (isLabAdmin(user) && study.labAdminIds.includes(user.id)) return true;
+  return false;
+}
+
+// Deleting a study, or granting another account access to it, is a bigger
+// deal than editing its operational details — kept to the creating DRI or
+// a superadmin only, even for a Lab Admin who can otherwise edit the study.
 function canManageStudy(user: User | null, study: Study): boolean {
   if (!user) return false;
   if (isSuperadmin(user)) return true;
@@ -179,7 +196,7 @@ export default async (req: Request, context: Context) => {
     const existing = await store.get(body.id, { type: "json" }) as Study | null;
     if (!existing) return new Response("Not found", { status: 404 });
 
-    if (!canManageStudy(user, existing)) {
+    if (!canEditStudy(user, existing)) {
       return Response.json({ error: "you do not have permission to edit this study" }, { status: 403 });
     }
 
@@ -192,20 +209,19 @@ export default async (req: Request, context: Context) => {
     for (const field of allowedFields) {
       if (field in updates) (merged as any)[field] = updates[field];
     }
-    // Assigning Lab Admins to a study is a superadmin-only action, separate
-    // from the general "can this person edit the study" check above — a
-    // DRI can edit their own study's details but can't grant study access
-    // to other accounts.
+    // Assigning Lab Admins to a study is a superadmin-only action, stricter
+    // than the general edit check above — a Lab Admin can edit a study
+    // they're assigned to but can't grant *other* accounts access to it.
     if ("labAdminIds" in updates) {
       if (!isSuperadmin(user)) {
         return Response.json({ error: "only superadmins can assign lab admins to a study" }, { status: 403 });
       }
       merged.labAdminIds = updates.labAdminIds;
     }
-    // Location is scheduled per week and is expected to pivot, unlike
-    // protocols/taxonomy — but still the DRI's (or a superadmin's) call,
-    // same as the rest of the study, so it rides the general permission
-    // check above rather than needing its own carve-out like labAdminIds.
+    // Location is scheduled per week and is expected to pivot — including
+    // by a Lab Admin in the field who shouldn't have to wait on a DRI to
+    // respond, so this rides the general canEditStudy check above rather
+    // than needing its own DRI-only carve-out like labAdminIds does.
     if ("locationSchedule" in updates) {
       const schedule = normalizeLocationSchedule(updates.locationSchedule);
       if (!schedule) {

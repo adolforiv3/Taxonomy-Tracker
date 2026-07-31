@@ -375,10 +375,12 @@ function renderDashboard(){
   } else if(state.reviewingStudy){
     main.appendChild(renderStudyReview());
   } else {
-    // Lab Admins manage assignments within studies they've been given
-    // access to, but don't create studies themselves — that's the DRI's
-    // (or a superadmin's) job.
-    if(state.user.role !== "lab_admin"){
+    // Lab Admins can edit a study they're assigned to (including pivoting
+    // a location without waiting on a DRI), but don't create new studies
+    // from scratch — that's still the DRI's (or a superadmin's) job. So
+    // the form only shows for a Lab Admin when they're actively editing
+    // an existing study (editingId set), never as the blank create form.
+    if(state.user.role !== "lab_admin" || state.form.editingId){
       main.appendChild(renderForm());
     }
     main.appendChild(renderStudyList());
@@ -956,14 +958,16 @@ function renderStudyList(){
       labAdminBtn.onclick = () => openLabAdminManagement(s.id);
       actions.appendChild(labAdminBtn);
     }
-    // Editing/deleting the study itself is the creating DRI's (or a
-    // superadmin's) call — a Lab Admin only manages assignments within it.
-    if(state.user.role !== "lab_admin"){
-      const editBtn = document.createElement("button");
-      editBtn.textContent = "Edit";
-      editBtn.onclick = () => loadStudyForEdit(s.id);
-      actions.appendChild(editBtn);
+    // A Lab Admin can edit a study they're assigned to — including pivoting
+    // a location — without waiting on a DRI to respond from the field.
+    const editBtn = document.createElement("button");
+    editBtn.textContent = "Edit";
+    editBtn.onclick = () => loadStudyForEdit(s.id);
+    actions.appendChild(editBtn);
 
+    // Deleting the study itself is a bigger deal than editing its details —
+    // stays the creating DRI's (or a superadmin's) call only.
+    if(state.user.role !== "lab_admin"){
       const deleteBtn = document.createElement("button");
       deleteBtn.className = "del";
       deleteBtn.textContent = "Delete";
