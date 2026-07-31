@@ -1,5 +1,6 @@
 import type { Context, Config } from "@netlify/functions";
 import { getStore } from "@netlify/blobs";
+import ExcelJS from "exceljs";
 import { verifyToken } from "./utils/auth.mts";
 import { usersStore } from "./utils/store.mts";
 
@@ -7,10 +8,32 @@ import { usersStore } from "./utils/store.mts";
 // observed — matches the run-log format the team already reads day to day.
 // "Offload Status" is left blank for the team to fill in by hand, same as
 // their existing sheet; this app has no notion of physical device offload.
-const CSV_COLUMNS = [
-  "date", "team_id", "location_state", "location_city", "route", "environment", "protocol",
-  "object_kit", "calibration_session_id", "capture_session_id", "signs_observed", "offload_status", "notes"
+const RUN_LOG_HEADERS = [
+  "Date", "Team", "Location State", "Location City", "Route", "Environment", "Protocol",
+  "Object Kit", "Calibration Session ID", "Capture Session ID", "Signs Observed", "Offload Status", "Notes"
 ];
+
+const HEADER_FILL: ExcelJS.FillPattern = { type: "pattern", pattern: "solid", fgColor: { argb: "FFEDEDED" } };
+const THIN_BORDER: Partial<ExcelJS.Borders> = {
+  top: { style: "thin", color: { argb: "FFE0E0E0" } },
+  left: { style: "thin", color: { argb: "FFE0E0E0" } },
+  bottom: { style: "thin", color: { argb: "FFE0E0E0" } },
+  right: { style: "thin", color: { argb: "FFE0E0E0" } }
+};
+// A small pastel palette, hashed onto each distinct value so the same
+// Environment name always lands on the same color within and across exports
+// (rather than reassigning colors run to run based on encounter order).
+const COLOR_PALETTE = ["FFE0D6F7", "FFD6E8FA", "FFFCE3C7", "FFD9F2D9", "FFFAD6E4", "FFFFF3C4", "FFD6F5F0", "FFE8E8E8"];
+function hashColor(s: string): string {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return COLOR_PALETTE[h % COLOR_PALETTE.length];
+}
+
+// Excel sheet names can't contain \ / ? * [ ] : and are capped at 31 chars.
+function sheetSafeName(name: string): string {
+  return name.replace(/[\\/?*\[\]:]/g, " ").slice(0, 31) || "Team";
+}
 
 // Root app (no studyId) keeps its original unprefixed key scheme so existing data
 // stays reachable. Studies created via the Study Builder get their own namespace.
@@ -32,11 +55,6 @@ function isoWeek(dateStr: string): string {
   return `${d.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
 }
 
-function csvEscape(v: unknown): string {
-  const s = String(v ?? "");
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-}
-
 // A "run" is every entry sharing a team + capture (or calibration) session —
 // the same grouping admin.html's team accordion already uses to fold
 // individual sign observations back into the session they were captured in.
@@ -56,19 +74,41 @@ function summarizeSigns(run: any[]): string {
   return [...counts.entries()].map(([signType, n]) => (n > 1 ? `${signType} x${n}` : signType)).join(", ");
 }
 
-function toCsv(entries: any[]): string {
+function styleHeaderRow(row: ExcelJS.Row) {
+  row.eachCell((cell) => {
+    cell.font = { bold: true };
+    cell.fill = HEADER_FILL;
+    cell.border = THIN_BORDER;
+  });
+}
+
+async function buildRunLogWorkbook(entries: any[]): Promise<ExcelJS.Buffer> {
   const runs = groupIntoRuns(entries)
     .slice()
     .sort((a, b) => String(a[0].timestamp).localeCompare(String(b[0].timestamp)));
-  const rows = runs.map((run) => {
+
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet("Run Log");
+  sheet.columns = RUN_LOG_HEADERS.map((header) => ({ header, width: Math.max(14, header.length + 2) }));
+  sheet.views = [{ state: "frozen", ySplit: 1 }];
+
+  runs.forEach((run) => {
     const first = run[0];
-    return [
+    const row = sheet.addRow([
       first.date, first.teamId, first.locationState, first.locationCity, first.route, first.environment,
       first.protocol, first.objectKit, first.calibrationSessionId, first.captureSessionId,
       summarizeSigns(run), "", first.sessionNotes
-    ].map(csvEscape).join(",");
+    ]);
+    row.eachCell((cell) => { cell.border = THIN_BORDER; });
+    if (first.environment) {
+      row.getCell(6).fill = { type: "pattern", pattern: "solid", fgColor: { argb: hashColor(String(first.environment)) } };
+    }
   });
-  return [CSV_COLUMNS.join(","), ...rows].join("\n");
+
+  styleHeaderRow(sheet.getRow(1));
+  sheet.autoFilter = { from: "A1", to: `${sheet.getColumn(RUN_LOG_HEADERS.length).letter}1` };
+
+  return (await workbook.xlsx.writeBuffer()) as ExcelJS.Buffer;
 }
 
 // The companion "how many of each sign type, per day" tally the team keeps
@@ -84,14 +124,19 @@ async function fetchStudySignTypes(studyId: string | null): Promise<string[] | n
   return study.signTypes.map((t: any) => t.name);
 }
 
-function toTallyCsv(entries: any[], canonicalSignTypes: string[] | null): string {
+const TALLY_ROW_FILL: ExcelJS.FillPattern = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE3F5DE" } };
+
+async function buildTallyWorkbook(entries: any[], canonicalSignTypes: string[] | null): Promise<ExcelJS.Buffer> {
   const byTeam = new Map<string, any[]>();
   entries.forEach((e) => {
     if (!byTeam.has(e.teamId)) byTeam.set(e.teamId, []);
     byTeam.get(e.teamId)!.push(e);
   });
 
-  const teamBlocks = [...byTeam.keys()].sort().map((teamId) => {
+  const workbook = new ExcelJS.Workbook();
+  const usedSheetNames = new Set<string>();
+
+  [...byTeam.keys()].sort().forEach((teamId) => {
     const teamEntries = byTeam.get(teamId)!;
     const dates = [...new Set(teamEntries.map((e) => e.date))].sort();
 
@@ -105,18 +150,38 @@ function toTallyCsv(entries: any[], canonicalSignTypes: string[] | null): string
     });
     const signTypes = [...signTypeSet].sort((a, b) => a.localeCompare(b));
 
-    const header = ["Signs", ...dates, "Total"].map(csvEscape).join(",");
-    const rows = signTypes.map((s) => {
+    let sheetName = sheetSafeName(teamId);
+    if (usedSheetNames.has(sheetName)) {
+      let n = 2;
+      while (usedSheetNames.has(`${sheetName} (${n})`)) n++;
+      sheetName = `${sheetName} (${n})`;
+    }
+    usedSheetNames.add(sheetName);
+
+    const sheet = workbook.addWorksheet(sheetName);
+    const headers = ["Signs", ...dates, "Total"];
+    sheet.columns = headers.map((h, i) => ({ header: h, width: i === 0 ? 26 : 12 }));
+    sheet.views = [{ state: "frozen", xSplit: 1, ySplit: 1 }];
+
+    signTypes.forEach((s) => {
       const perDate = counts.get(s) || new Map<string, number>();
       const dayCounts = dates.map((d) => perDate.get(d) || 0);
       const total = dayCounts.reduce((sum, n) => sum + n, 0);
-      return [s, ...dayCounts, total].map(csvEscape).join(",");
+      const row = sheet.addRow([s, ...dayCounts, total]);
+      row.eachCell((cell) => {
+        cell.fill = TALLY_ROW_FILL;
+        cell.border = THIN_BORDER;
+      });
+      row.getCell(headers.length).font = { bold: true };
     });
 
-    return [`Team: ${teamId}`, header, ...rows].join("\n");
+    styleHeaderRow(sheet.getRow(1));
+    sheet.autoFilter = { from: "A1", to: `${sheet.getColumn(headers.length).letter}1` };
   });
 
-  return teamBlocks.join("\n\n");
+  if (usedSheetNames.size === 0) workbook.addWorksheet("No Entries");
+
+  return (await workbook.xlsx.writeBuffer()) as ExcelJS.Buffer;
 }
 
 // Resolves the requesting lab admin/superadmin from the bearer token, if present.
@@ -149,21 +214,18 @@ export default async (req: Request, context: Context) => {
     const values = await Promise.all(blobs.map((b) => store.get(b.key, { type: "json" })));
     const entries = values.filter(Boolean);
 
-    if (url.searchParams.get("format") === "csv") {
+    if (url.searchParams.get("format") === "xlsx") {
+      const xlsxHeaders = { "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" };
       if (url.searchParams.get("view") === "tally") {
         const canonicalSignTypes = await fetchStudySignTypes(studyId);
-        return new Response(toTallyCsv(entries, canonicalSignTypes), {
-          headers: {
-            "content-type": "text/csv",
-            "content-disposition": `attachment; filename="taxonomy_tally_week_${week}.csv"`
-          }
+        const buffer = await buildTallyWorkbook(entries, canonicalSignTypes);
+        return new Response(buffer, {
+          headers: { ...xlsxHeaders, "content-disposition": `attachment; filename="taxonomy_tally_week_${week}.xlsx"` }
         });
       }
-      return new Response(toCsv(entries), {
-        headers: {
-          "content-type": "text/csv",
-          "content-disposition": `attachment; filename="taxonomy_runs_week_${week}.csv"`
-        }
+      const buffer = await buildRunLogWorkbook(entries);
+      return new Response(buffer, {
+        headers: { ...xlsxHeaders, "content-disposition": `attachment; filename="taxonomy_runs_week_${week}.xlsx"` }
       });
     }
     return Response.json({ week, entries });

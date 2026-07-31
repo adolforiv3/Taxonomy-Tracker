@@ -551,7 +551,7 @@ function renderDashboard(){
     </div>
     <button class="refreshbtn" id="refreshBtn">${state.loading ? "Refreshing…" : "↻ Refresh"}</button>
     <span class="updated">${state.lastUpdated ? "Updated " + state.lastUpdated.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : ""}</span>
-    ${isAdmin() ? '<button class="exportbtn" id="exportRunsBtn">⬇ Run Log CSV</button><button class="exportbtn" id="exportTallyBtn" style="margin-left:8px;">⬇ Taxonomy Tally CSV</button>' : ''}
+    ${isAdmin() ? '<button class="exportbtn" id="exportRunsBtn">⬇ Run Log (Excel)</button><button class="exportbtn" id="exportTallyBtn" style="margin-left:8px;">⬇ Taxonomy Tally (Excel)</button>' : ''}
   `;
   main.appendChild(topbar);
 
@@ -614,13 +614,13 @@ function renderDashboard(){
   const exportRunsBtn = topbar.querySelector("#exportRunsBtn");
   if(exportRunsBtn){
     exportRunsBtn.onclick = () => {
-      window.location.href = `/api/entries?week=${encodeURIComponent(state.week)}&study=${encodeURIComponent(currentStudyId())}&format=csv`;
+      window.location.href = `/api/entries?week=${encodeURIComponent(state.week)}&study=${encodeURIComponent(currentStudyId())}&format=xlsx`;
     };
   }
   const exportTallyBtn = topbar.querySelector("#exportTallyBtn");
   if(exportTallyBtn){
     exportTallyBtn.onclick = () => {
-      window.location.href = `/api/entries?week=${encodeURIComponent(state.week)}&study=${encodeURIComponent(currentStudyId())}&format=csv&view=tally`;
+      window.location.href = `/api/entries?week=${encodeURIComponent(state.week)}&study=${encodeURIComponent(currentStudyId())}&format=xlsx&view=tally`;
     };
   }
 

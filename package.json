@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@netlify/blobs": "^8.1.0"
+    "@netlify/blobs": "^8.1.0",
+    "exceljs": "^4.4.0"
   },
   "devDependencies": {
     "@netlify/functions": "^2.8.2"

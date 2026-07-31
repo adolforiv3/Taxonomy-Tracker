@@ -1014,9 +1014,9 @@ function renderWeekly(){
 
   const exportBtn = document.createElement("button");
   exportBtn.className = "exportbtn";
-  exportBtn.textContent = "⬇ Download Weekly CSV (all teams)";
+  exportBtn.textContent = "⬇ Download Weekly Document (all teams)";
   exportBtn.onclick = () => {
-    window.location.href = `/api/entries?week=${encodeURIComponent(state.weekly.week)}&study=${encodeURIComponent(STUDY_ID)}&format=csv`;
+    window.location.href = `/api/entries?week=${encodeURIComponent(state.weekly.week)}&study=${encodeURIComponent(STUDY_ID)}&format=xlsx`;
   };
   main.appendChild(exportBtn);
 
