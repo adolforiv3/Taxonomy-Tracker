@@ -917,22 +917,33 @@ function showToast(msg){
 
 function startPolling(){
   stopPolling();
-  pollTimer = setInterval(() => { if(state.tab === "weekly") fetchWeekly(); }, 20000);
+  pollTimer = setInterval(() => { if(state.tab === "weekly") fetchWeekly({background: true}); }, 20000);
 }
 
 function stopPolling(){
   if(pollTimer){ clearInterval(pollTimer); pollTimer = null; }
 }
 
-async function fetchWeekly(){
-  state.weekly.loading = true;
-  render();
+async function fetchWeekly(opts){
+  // Background polls (every 20s) skip the loading-spinner render, and if
+  // the fetched entries turn out identical to what's already showing, skip
+  // the full teardown/rebuild render entirely — nothing on screen depends
+  // on the fetch having happened, only on the data itself. A manual
+  // refresh/tab-switch call always renders fully.
+  const background = !!(opts && opts.background);
+  if(!background){
+    state.weekly.loading = true;
+    render();
+  }
   try {
     const res = await fetch(`/api/entries?week=${encodeURIComponent(state.weekly.week)}&study=${encodeURIComponent(STUDY_ID)}`);
     const data = await res.json();
-    state.weekly.entries = (data.entries || []).sort((a,b) => String(b.timestamp).localeCompare(String(a.timestamp)));
+    const nextEntries = (data.entries || []).sort((a,b) => String(b.timestamp).localeCompare(String(a.timestamp)));
+    const changed = JSON.stringify(nextEntries) !== JSON.stringify(state.weekly.entries);
+    state.weekly.entries = nextEntries;
+    if(background && !changed) return;
   } catch (err) {
-    showToast("Couldn't load the weekly document");
+    if(!background) showToast("Couldn't load the weekly document");
   }
   state.weekly.loading = false;
   render();

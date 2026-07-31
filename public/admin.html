@@ -795,14 +795,28 @@ async function deleteRun(round){
   }
 }
 
-async function fetchEntries(){
-  state.loading = true;
-  render();
+async function fetchEntries(opts){
+  // Background polls (every 15s) skip the loading-spinner render and, when
+  // the fetched entries are identical to what's already showing, skip the
+  // full teardown/rebuild render too — only the "Updated" timestamp gets a
+  // targeted DOM patch. A manual refresh/week-nav call always renders fully.
+  const background = !!(opts && opts.background);
+  if(!background){
+    state.loading = true;
+    render();
+  }
   try {
     const res = await fetch(`/api/entries?week=${encodeURIComponent(state.week)}&study=${encodeURIComponent(STUDY_ID)}`);
     const data = await res.json();
-    state.entries = data.entries || [];
+    const nextEntries = data.entries || [];
+    const changed = JSON.stringify(nextEntries) !== JSON.stringify(state.entries);
+    state.entries = nextEntries;
     state.lastUpdated = new Date();
+    if(background && !changed){
+      const updatedEl = document.querySelector(".updated");
+      if(updatedEl) updatedEl.textContent = "Updated " + state.lastUpdated.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
+      return;
+    }
   } catch (err) {
     // silent fail, keep last known data
   }
@@ -852,7 +866,7 @@ async function saveEdit(entry){
 
 function startPolling(){
   if(pollTimer) clearInterval(pollTimer);
-  pollTimer = setInterval(fetchEntries, 15000);
+  pollTimer = setInterval(() => fetchEntries({background: true}), 15000);
 }
 
 function escapeHtml(s){

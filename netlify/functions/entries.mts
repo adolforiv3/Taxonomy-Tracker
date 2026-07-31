@@ -95,17 +95,15 @@ function toTallyCsv(entries: any[], canonicalSignTypes: string[] | null): string
     const teamEntries = byTeam.get(teamId)!;
     const dates = [...new Set(teamEntries.map((e) => e.date))].sort();
 
-    const signTypes = canonicalSignTypes && canonicalSignTypes.length
-      ? [...canonicalSignTypes]
-      : [];
+    const signTypeSet = new Set(canonicalSignTypes && canonicalSignTypes.length ? canonicalSignTypes : []);
     const counts = new Map<string, Map<string, number>>();
     teamEntries.forEach((e) => {
       if (!counts.has(e.signType)) counts.set(e.signType, new Map());
-      if (!signTypes.includes(e.signType)) signTypes.push(e.signType);
+      signTypeSet.add(e.signType); // Set lookups keep this O(1) per entry instead of an O(n) Array.includes() scan
       const perDate = counts.get(e.signType)!;
       perDate.set(e.date, (perDate.get(e.date) || 0) + 1);
     });
-    signTypes.sort((a, b) => a.localeCompare(b));
+    const signTypes = [...signTypeSet].sort((a, b) => a.localeCompare(b));
 
     const header = ["Signs", ...dates, "Total"].map(csvEscape).join(",");
     const rows = signTypes.map((s) => {
