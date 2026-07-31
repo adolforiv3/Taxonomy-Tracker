@@ -264,7 +264,8 @@ let state = {
   toast: null,
   assignments: [], // today's Lab Admin-set {teamId, kitNumber, route, environment} for this study
   assignmentsLoading: false,
-  teamFilter: ""
+  teamFilter: "",
+  teamEntryErr: ""
 };
 
 let pollTimer = null;
@@ -609,35 +610,55 @@ function renderSetup(){
       return main;
     }
 
-    const filterInput = document.createElement("input");
-    filterInput.type = "text";
-    filterInput.placeholder = "Type your team name…";
-    filterInput.value = state.teamFilter;
-    filterInput.style.marginBottom = "12px";
-    // No render() on input — replacing this element on every keystroke would
-    // drop focus after one character, the same bug the old free-text team
-    // field had. Filtering the tile list only needs to catch up once typing
-    // pauses, so that happens on blur (and immediately on Enter).
-    filterInput.oninput = (e) => { state.teamFilter = e.target.value; };
-    filterInput.onblur = () => { render(); };
-    filterInput.addEventListener("keydown", (e) => { if(e.key === "Enter") render(); });
-    main.appendChild(filterInput);
+    // Deliberately typed, not tapped from a list — same reasoning as the
+    // calibration/capture session IDs: picking your own team off a tile is
+    // one careless tap away from logging under the wrong team's name, and
+    // that's not a mistake you can easily undo after signs have already
+    // been logged. Typing it forces a conscious, individually-confirmed
+    // entry instead.
+    const hint = document.createElement("div");
+    hint.style.cssText = "font-size:12.5px;color:var(--ink-soft);padding:0 2px 10px;line-height:1.5;";
+    hint.textContent = `Assigned today: ${state.assignments.map(a => a.teamId).join(", ")}`;
+    main.appendChild(hint);
 
-    const needle = state.teamFilter.trim().toLowerCase();
-    const filtered = needle
-      ? state.assignments.filter(a => a.teamId.toLowerCase().includes(needle))
-      : state.assignments;
+    const teamInput = document.createElement("input");
+    teamInput.type = "text";
+    teamInput.placeholder = "Type your team name…";
+    teamInput.value = state.teamFilter;
+    teamInput.style.marginBottom = "10px";
+    teamInput.oninput = (e) => { state.teamFilter = e.target.value; };
+    main.appendChild(teamInput);
 
-    if(filtered.length === 0){
-      const noMatch = document.createElement("div");
-      noMatch.style.cssText = "font-size:13px;color:var(--ink-soft);padding:8px 2px;";
-      noMatch.textContent = `No team matches "${state.teamFilter}".`;
-      main.appendChild(noMatch);
-    } else {
-      main.appendChild(tileGrid(filtered.map(a => ({
-        label: a.teamId, wide: true, sel: false, onClick: () => selectAssignment(a)
-      }))));
-    }
+    const err = document.createElement("div");
+    err.style.cssText = "color:var(--red);font-size:12.5px;min-height:16px;margin-bottom:8px;";
+    err.textContent = state.teamEntryErr;
+    main.appendChild(err);
+
+    const submitTeam = () => {
+      const typed = state.teamFilter.trim();
+      if(!typed){
+        state.teamEntryErr = "Enter your team name";
+        render();
+        return;
+      }
+      const match = state.assignments.find(a => a.teamId.toLowerCase() === typed.toLowerCase());
+      if(!match){
+        state.teamEntryErr = `No assignment found for "${typed}" today — check the spelling or with your Lab Admin.`;
+        render();
+        return;
+      }
+      state.teamEntryErr = "";
+      selectAssignment(match);
+    };
+    teamInput.addEventListener("keydown", (e) => { if(e.key === "Enter") submitTeam(); });
+
+    const submitBtn = document.createElement("button");
+    submitBtn.className = "logbtn";
+    submitBtn.textContent = "Continue";
+    submitBtn.onclick = submitTeam;
+    main.appendChild(submitBtn);
+
+    setTimeout(() => teamInput.focus(), 0);
     return main;
   }
 
