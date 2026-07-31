@@ -3,6 +3,7 @@ import { getStore } from "@netlify/blobs";
 import { verifyToken, isSuperadmin, isLabAdmin, type UserRole } from "./utils/auth.mts";
 import { usersStore } from "./utils/store.mts";
 import { autoEmoji } from "./utils/emoji.mts";
+import { updateJSON, ConcurrentWriteError } from "./utils/occ.mts";
 
 // A study can run for weeks at a stretch while the team travels city to
 // city, so location is scheduled per ISO week (e.g. "2026-W31") rather than
@@ -39,6 +40,14 @@ interface User {
   email: string;
   role: UserRole;
   createdAt: string;
+}
+
+class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
 }
 
 function makeId(): string {
@@ -193,49 +202,67 @@ export default async (req: Request, context: Context) => {
     const body = await req.json();
     if (!body.id) return Response.json({ ok: false, error: "id is required" }, { status: 400 });
 
-    const existing = await store.get(body.id, { type: "json" }) as Study | null;
-    if (!existing) return new Response("Not found", { status: 404 });
-
-    if (!canEditStudy(user, existing)) {
-      return Response.json({ error: "you do not have permission to edit this study" }, { status: 403 });
-    }
-
     const allowedFields = [
       "name", "dateStart", "dateEnd", "passcode", "teamCount",
       "protocols", "environments", "objectKitCount", "signTypes"
     ];
     const updates = body.updates || {};
-    const merged = { ...existing };
-    for (const field of allowedFields) {
-      if (field in updates) (merged as any)[field] = updates[field];
-    }
-    // Assigning Lab Admins to a study is a superadmin-only action, stricter
-    // than the general edit check above — a Lab Admin can edit a study
-    // they're assigned to but can't grant *other* accounts access to it.
-    if ("labAdminIds" in updates) {
-      if (!isSuperadmin(user)) {
-        return Response.json({ error: "only superadmins can assign lab admins to a study" }, { status: 403 });
-      }
-      merged.labAdminIds = updates.labAdminIds;
-    }
-    // Location is scheduled per week and is expected to pivot — including
-    // by a Lab Admin in the field who shouldn't have to wait on a DRI to
-    // respond, so this rides the general canEditStudy check above rather
-    // than needing its own DRI-only carve-out like labAdminIds does.
-    if ("locationSchedule" in updates) {
-      const schedule = normalizeLocationSchedule(updates.locationSchedule);
-      if (!schedule) {
-        return Response.json({ error: "each location needs a week, state, and city, and a week can only appear once" }, { status: 400 });
-      }
-      merged.locationSchedule = schedule;
-    }
-    if (Array.isArray(merged.signTypes)) {
-      merged.signTypes = withAutoEmoji(merged.signTypes);
-    }
-    merged.updatedAt = new Date().toISOString();
 
-    await store.setJSON(body.id, merged);
-    return Response.json({ ok: true, study: sanitizeForList(merged) });
+    let saved!: Study;
+    try {
+      // Permission, "not found", and every validation below are re-checked
+      // against the freshest read on every retry — a Lab Admin and a DRI
+      // can now edit the same study concurrently (see canEditStudy), so a
+      // plain read-then-write here would let one silently overwrite the
+      // other's change with no error to either of them.
+      await updateJSON<Study>(store, body.id, (current) => {
+        if (!current) throw new ApiError("not found", 404);
+        if (!canEditStudy(user, current)) {
+          throw new ApiError("you do not have permission to edit this study", 403);
+        }
+
+        const merged: Study = { ...current };
+        for (const field of allowedFields) {
+          if (field in updates) (merged as any)[field] = updates[field];
+        }
+        // Assigning Lab Admins to a study is a superadmin-only action,
+        // stricter than the general edit check above — a Lab Admin can
+        // edit a study they're assigned to but can't grant *other*
+        // accounts access to it.
+        if ("labAdminIds" in updates) {
+          if (!isSuperadmin(user)) {
+            throw new ApiError("only superadmins can assign lab admins to a study", 403);
+          }
+          merged.labAdminIds = updates.labAdminIds;
+        }
+        // Location is scheduled per week and is expected to pivot —
+        // including by a Lab Admin in the field who shouldn't have to
+        // wait on a DRI to respond, so this rides the general
+        // canEditStudy check above rather than needing its own DRI-only
+        // carve-out like labAdminIds does.
+        if ("locationSchedule" in updates) {
+          const schedule = normalizeLocationSchedule(updates.locationSchedule);
+          if (!schedule) {
+            throw new ApiError("each location needs a week, state, and city, and a week can only appear once", 400);
+          }
+          merged.locationSchedule = schedule;
+        }
+        if (Array.isArray(merged.signTypes)) {
+          merged.signTypes = withAutoEmoji(merged.signTypes);
+        }
+        merged.updatedAt = new Date().toISOString();
+
+        saved = merged;
+        return merged;
+      });
+    } catch (err) {
+      if (err instanceof ApiError) return Response.json({ error: err.message }, { status: err.status });
+      if (err instanceof ConcurrentWriteError) {
+        return Response.json({ error: "too much contention updating this study — please retry" }, { status: 409 });
+      }
+      throw err;
+    }
+    return Response.json({ ok: true, study: sanitizeForList(saved) });
   }
 
   if (req.method === "DELETE") {

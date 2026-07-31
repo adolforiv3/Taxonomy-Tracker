@@ -1,6 +1,7 @@
 import type { Context, Config } from "@netlify/functions";
 import { hashPassword, verifyPassword, newSessionToken, checkMasterPasscode, publicUser, verifyToken, isSuperadmin, type UserRole } from "./utils/auth.mts";
 import { usersStore } from "./utils/store.mts";
+import { updateJSON, ConcurrentWriteError } from "./utils/occ.mts";
 
 interface User {
   id: string;
@@ -11,6 +12,14 @@ interface User {
   createdAt: string;
 }
 
+class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
 function makeId(): string {
   return Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
 }
@@ -19,11 +28,6 @@ async function loadUsers(): Promise<User[]> {
   const store = usersStore();
   const data = await store.get("users", { type: "json" }) as User[] | null;
   return data || [];
-}
-
-async function saveUsers(users: User[]): Promise<void> {
-  const store = usersStore();
-  await store.setJSON("users", users);
 }
 
 async function resolveUser(req: Request): Promise<User | null> {
@@ -53,10 +57,13 @@ export default async (req: Request, context: Context) => {
   }
 
   if (action === "bootstrap") {
-    const users = await loadUsers();
-    if (users.length > 0) {
-      return Response.json({ error: "a superadmin account already exists" }, { status: 400 });
-    }
+    // Two people (or a retried request) could hit "bootstrap" at almost
+    // the same instant. A plain load-then-save would let both pass the
+    // "no users yet" check, both write, and the loser's account would
+    // silently cease to exist with no error — they'd believe they have a
+    // superadmin login that doesn't actually work. updateJSON() re-checks
+    // "no users exist yet" against the freshest possible state on every
+    // retry, so only one bootstrap can ever actually win.
     if (!checkMasterPasscode(body.masterPasscode)) {
       return Response.json({ error: "incorrect master passcode" }, { status: 401 });
     }
@@ -66,18 +73,34 @@ export default async (req: Request, context: Context) => {
       return Response.json({ error: "email and password (6+ chars) required" }, { status: 400 });
     }
 
-    const { salt, hash } = hashPassword(password);
-    const user: User = {
-      id: makeId(),
-      email,
-      salt,
-      hash,
-      role: "superadmin",
-      createdAt: new Date().toISOString(),
-    };
-    await saveUsers([user]);
-    const token = newSessionToken(user.id, user.role);
-    return Response.json({ token, user: publicUser(user) }, { status: 201 });
+    let created!: User;
+    try {
+      const store = usersStore();
+      await updateJSON<User[]>(store, "users", (current) => {
+        const users = current || [];
+        if (users.length > 0) {
+          throw new ApiError("a superadmin account already exists", 400);
+        }
+        const { salt, hash } = hashPassword(password);
+        created = {
+          id: makeId(),
+          email,
+          salt,
+          hash,
+          role: "superadmin",
+          createdAt: new Date().toISOString(),
+        };
+        return [created];
+      });
+    } catch (err) {
+      if (err instanceof ApiError) return Response.json({ error: err.message }, { status: err.status });
+      if (err instanceof ConcurrentWriteError) {
+        return Response.json({ error: "too much contention setting up the account — please retry" }, { status: 409 });
+      }
+      throw err;
+    }
+    const token = newSessionToken(created.id, created.role);
+    return Response.json({ token, user: publicUser(created) }, { status: 201 });
   }
 
   if (action === "createUser") {
@@ -97,22 +120,37 @@ export default async (req: Request, context: Context) => {
       return Response.json({ error: "invalid role" }, { status: 400 });
     }
 
-    const users = await loadUsers();
-    if (users.some((u) => u.email === email)) {
-      return Response.json({ error: "email already exists" }, { status: 400 });
+    let created!: User;
+    try {
+      const store = usersStore();
+      // Re-checked against the freshest read on every retry — two
+      // superadmins (or a double-click) creating accounts around the same
+      // moment could otherwise both pass the "email available" check and
+      // one account would silently vanish on the losing write.
+      await updateJSON<User[]>(store, "users", (current) => {
+        const users = current || [];
+        if (users.some((u) => u.email === email)) {
+          throw new ApiError("email already exists", 400);
+        }
+        const { salt, hash } = hashPassword(password);
+        created = {
+          id: makeId(),
+          email,
+          salt,
+          hash,
+          role,
+          createdAt: new Date().toISOString(),
+        };
+        return [...users, created];
+      });
+    } catch (err) {
+      if (err instanceof ApiError) return Response.json({ error: err.message }, { status: err.status });
+      if (err instanceof ConcurrentWriteError) {
+        return Response.json({ error: "too much contention creating this account — please retry" }, { status: 409 });
+      }
+      throw err;
     }
-
-    const { salt, hash } = hashPassword(password);
-    const user: User = {
-      id: makeId(),
-      email,
-      salt,
-      hash,
-      role,
-      createdAt: new Date().toISOString(),
-    };
-    await saveUsers([...users, user]);
-    return Response.json({ user: publicUser(user) }, { status: 201 });
+    return Response.json({ user: publicUser(created) }, { status: 201 });
   }
 
   if (action === "login") {
@@ -152,18 +190,33 @@ export default async (req: Request, context: Context) => {
       return Response.json({ error: "current password and new password (6+ chars) required" }, { status: 400 });
     }
 
-    if (!verifyPassword(body.currentPassword, user.salt, user.hash)) {
-      return Response.json({ error: "current password is incorrect" }, { status: 401 });
+    try {
+      const store = usersStore();
+      // Verifying the *current* password inside the mutator (not before
+      // it) matters: if this same account's password changed a split
+      // second earlier (another concurrent request, or the account itself
+      // racing this one), we must re-check "current password" against
+      // that fresh hash on every retry, not a stale one read before the
+      // race started.
+      await updateJSON<User[]>(store, "users", (current) => {
+        const users = current || [];
+        const idx = users.findIndex((u) => u.id === user.id);
+        if (idx === -1) throw new ApiError("user not found", 404);
+        if (!verifyPassword(body.currentPassword, users[idx].salt, users[idx].hash)) {
+          throw new ApiError("current password is incorrect", 401);
+        }
+        const { salt, hash } = hashPassword(body.newPassword);
+        const updated = [...users];
+        updated[idx] = { ...updated[idx], salt, hash };
+        return updated;
+      });
+    } catch (err) {
+      if (err instanceof ApiError) return Response.json({ error: err.message }, { status: err.status });
+      if (err instanceof ConcurrentWriteError) {
+        return Response.json({ error: "too much contention updating your account — please retry" }, { status: 409 });
+      }
+      throw err;
     }
-
-    const { salt, hash } = hashPassword(body.newPassword);
-    const users = await loadUsers();
-    const idx = users.findIndex((u) => u.id === user.id);
-    if (idx === -1) return Response.json({ error: "user not found" }, { status: 404 });
-
-    const updated = [...users];
-    updated[idx] = { ...updated[idx], salt, hash };
-    await saveUsers(updated);
 
     return Response.json({ ok: true });
   }

@@ -2,15 +2,24 @@ import type { Context, Config } from "@netlify/functions";
 import { getStore } from "@netlify/blobs";
 import { verifyToken, isSuperadmin, isLabAdmin, type UserRole } from "./utils/auth.mts";
 import { usersStore } from "./utils/store.mts";
+import { updateJSON, ConcurrentWriteError } from "./utils/occ.mts";
 
 // A lab admin plans out, ahead of time, exactly which team carries which
 // kit for a given day — replacing the earlier real-time "first team to tap
 // the tile wins it" kit-hold system. Since a human with full day-of context
-// is doing the planning, there's no concurrent-selection race to guard
+// is doing the planning, there's no concurrent-*selection* race to guard
 // against; the only integrity check left is catching an admin's own mistake
 // (assigning the same kit to two teams on the same day). Geographic
 // location is a DRI-owned, study-level concept scheduled per week (see
 // studies.mts's locationSchedule) — it doesn't live here.
+//
+// That said, every assignment for a given study — regardless of team or
+// date — is stored under one shared blob key, and this study can now be
+// edited by more than one Lab Admin concurrently. Every write below goes
+// through updateJSON() (see utils/occ.mts) precisely because a plain
+// read-modify-write here would let two Lab Admins creating or editing
+// *unrelated* assignments for the same study silently overwrite one
+// another — the losing write returns success but its effect disappears.
 //
 // A team's assignment carries one or more routes: a primary, plus optional
 // backups for when the primary is obstructed or otherwise compromising data
@@ -46,6 +55,14 @@ interface Study {
 interface User {
   id: string;
   role: UserRole;
+}
+
+class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
 }
 
 function makeId(): string {
@@ -127,33 +144,41 @@ export default async (req: Request, context: Context) => {
     }
 
     const key = assignmentsKey(body.studyId);
-    const existing = (await store.get(key, { type: "json" }) as Assignment[] | null) || [];
-
-    const sameDay = existing.filter((a) => a.date === body.date);
-    if (sameDay.some((a) => a.teamId === body.teamId)) {
-      return Response.json({ error: `${body.teamId} already has an assignment for ${body.date}` }, { status: 400 });
+    let created!: Assignment;
+    try {
+      await updateJSON<Assignment[]>(store, key, (current) => {
+        const existing = current || [];
+        // Re-checked against the freshest read on every retry attempt, not
+        // just once against a snapshot — otherwise two concurrent creates
+        // could each individually pass this check and still collide.
+        const sameDay = existing.filter((a) => a.date === body.date);
+        if (sameDay.some((a) => a.teamId === body.teamId)) {
+          throw new ApiError(`${body.teamId} already has an assignment for ${body.date}`, 400);
+        }
+        const kitConflict = sameDay.find((a) => a.kitNumber === Number(body.kitNumber));
+        if (kitConflict) {
+          throw new ApiError(`Kit ${body.kitNumber} is already assigned to ${kitConflict.teamId} on ${body.date}`, 400);
+        }
+        created = {
+          id: makeId(),
+          studyId: body.studyId,
+          date: body.date,
+          teamId: body.teamId,
+          kitNumber: Number(body.kitNumber),
+          routes,
+          createdBy: user!.id,
+          createdAt: new Date().toISOString()
+        };
+        return [...existing, created];
+      });
+    } catch (err) {
+      if (err instanceof ApiError) return Response.json({ error: err.message }, { status: err.status });
+      if (err instanceof ConcurrentWriteError) {
+        return Response.json({ error: "too much contention creating this assignment — please retry" }, { status: 409 });
+      }
+      throw err;
     }
-    const kitConflict = sameDay.find((a) => a.kitNumber === Number(body.kitNumber));
-    if (kitConflict) {
-      return Response.json(
-        { error: `Kit ${body.kitNumber} is already assigned to ${kitConflict.teamId} on ${body.date}` },
-        { status: 400 }
-      );
-    }
-
-    const assignment: Assignment = {
-      id: makeId(),
-      studyId: body.studyId,
-      date: body.date,
-      teamId: body.teamId,
-      kitNumber: Number(body.kitNumber),
-      routes,
-      createdBy: user!.id,
-      createdAt: new Date().toISOString()
-    };
-
-    await store.setJSON(key, [...existing, assignment]);
-    return Response.json({ ok: true, assignment });
+    return Response.json({ ok: true, assignment: created });
   }
 
   if (req.method === "PATCH") {
@@ -165,35 +190,42 @@ export default async (req: Request, context: Context) => {
     if (!body.id) return Response.json({ error: "id is required" }, { status: 400 });
 
     const key = assignmentsKey(body.studyId);
-    const existing = (await store.get(key, { type: "json" }) as Assignment[] | null) || [];
-    const idx = existing.findIndex((a) => a.id === body.id);
-    if (idx === -1) return Response.json({ error: "not found" }, { status: 404 });
+    let saved!: Assignment;
+    try {
+      await updateJSON<Assignment[]>(store, key, (current) => {
+        const existing = current || [];
+        const idx = existing.findIndex((a) => a.id === body.id);
+        if (idx === -1) throw new ApiError("not found", 404);
 
-    const updates = body.updates || {};
-    const merged = { ...existing[idx] };
-    if ("kitNumber" in updates) merged.kitNumber = Number(updates.kitNumber);
-    if ("routes" in updates) {
-      const routes = normalizeRoutes(updates.routes);
-      if (!routes) {
-        return Response.json({ error: "at least one route with an environment is required" }, { status: 400 });
+        const updates = body.updates || {};
+        const merged = { ...existing[idx] };
+        if ("kitNumber" in updates) merged.kitNumber = Number(updates.kitNumber);
+        if ("routes" in updates) {
+          const routes = normalizeRoutes(updates.routes);
+          if (!routes) throw new ApiError("at least one route with an environment is required", 400);
+          merged.routes = routes;
+        }
+        merged.updatedAt = new Date().toISOString();
+
+        const sameDayOthers = existing.filter((a) => a.date === merged.date && a.id !== merged.id);
+        const kitConflict = sameDayOthers.find((a) => a.kitNumber === merged.kitNumber);
+        if (kitConflict) {
+          throw new ApiError(`Kit ${merged.kitNumber} is already assigned to ${kitConflict.teamId} on ${merged.date}`, 400);
+        }
+
+        saved = merged;
+        const next = [...existing];
+        next[idx] = merged;
+        return next;
+      });
+    } catch (err) {
+      if (err instanceof ApiError) return Response.json({ error: err.message }, { status: err.status });
+      if (err instanceof ConcurrentWriteError) {
+        return Response.json({ error: "too much contention updating this assignment — please retry" }, { status: 409 });
       }
-      merged.routes = routes;
+      throw err;
     }
-    merged.updatedAt = new Date().toISOString();
-
-    const sameDayOthers = existing.filter((a) => a.date === merged.date && a.id !== merged.id);
-    const kitConflict = sameDayOthers.find((a) => a.kitNumber === merged.kitNumber);
-    if (kitConflict) {
-      return Response.json(
-        { error: `Kit ${merged.kitNumber} is already assigned to ${kitConflict.teamId} on ${merged.date}` },
-        { status: 400 }
-      );
-    }
-
-    const next = [...existing];
-    next[idx] = merged;
-    await store.setJSON(key, next);
-    return Response.json({ ok: true, assignment: merged });
+    return Response.json({ ok: true, assignment: saved });
   }
 
   if (req.method === "DELETE") {
@@ -205,8 +237,17 @@ export default async (req: Request, context: Context) => {
     if (!body.id) return Response.json({ error: "id is required" }, { status: 400 });
 
     const key = assignmentsKey(body.studyId);
-    const existing = (await store.get(key, { type: "json" }) as Assignment[] | null) || [];
-    await store.setJSON(key, existing.filter((a) => a.id !== body.id));
+    try {
+      await updateJSON<Assignment[]>(store, key, (current) => {
+        const existing = current || [];
+        return existing.filter((a) => a.id !== body.id);
+      });
+    } catch (err) {
+      if (err instanceof ConcurrentWriteError) {
+        return Response.json({ error: "too much contention removing this assignment — please retry" }, { status: 409 });
+      }
+      throw err;
+    }
     return Response.json({ ok: true });
   }
 
