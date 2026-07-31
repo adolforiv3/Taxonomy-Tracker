@@ -112,6 +112,12 @@
   .rowbtn.del{color:var(--red);}
   .empty{text-align:center;padding:60px 20px;color:var(--ink-soft);font-size:14px;}
 
+  .studypicker-list{display:flex;flex-direction:column;gap:10px;max-width:560px;}
+  .studypicker-row{display:block;width:100%;text-align:left;background:var(--card);border:1px solid var(--border);
+    border-radius:var(--r-md);padding:16px 18px;box-shadow:var(--shadow-sm);font-family:inherit;}
+  .studypicker-row .name{font-size:15px;font-weight:700;color:var(--ink);margin-bottom:4px;}
+  .studypicker-row .meta{font-size:12.5px;color:var(--ink-soft);}
+
   .editrow input, .editrow select{width:100%;padding:7px 9px;border:1px solid var(--border);
     border-radius:var(--r-sm);font-size:12.5px;font-family:inherit;background:var(--card);color:var(--ink);}
 
@@ -192,6 +198,15 @@ let state = {
   token: sessionStorage.getItem("tl_admin_token"),
   authErr: "",
 
+  // Which study's entries are currently loaded. Seeded from the URL when the
+  // link is study-specific (/s/{id}/admin) or the legacy unscoped bucket
+  // (/admin, "default"). Left null only for an admin account landing on the
+  // plain /admin with no study baked into the URL — that's the signal to
+  // show the study picker instead of guessing which study they meant.
+  activeStudyId: STUDY_ID !== "default" ? STUDY_ID : null,
+  studiesList: [],
+  studiesLoading: false,
+
   week: isoWeek(todayLocal()),
   entries: [],
   loading: false,
@@ -209,9 +224,16 @@ const app = document.getElementById("app");
 
 function isAdmin(){ return !!state.user; }
 
-async function loadStudy(){
+// The study whose entries are actually being fetched/edited right now — as
+// opposed to STUDY_ID, which is frozen at whatever the URL said on page
+// load. Falls back to STUDY_ID so team-login mode (which never touches the
+// picker) keeps working unchanged.
+function currentStudyId(){ return state.activeStudyId ?? STUDY_ID; }
+
+async function loadStudy(studyId){
+  const id = studyId || STUDY_ID;
   try {
-    const res = await fetch(`/api/studies?id=${encodeURIComponent(STUDY_ID)}`);
+    const res = await fetch(`/api/studies?id=${encodeURIComponent(id)}`);
     if(!res.ok) throw new Error("not found");
     const data = await res.json();
     const s = data.study;
@@ -223,6 +245,48 @@ async function loadStudy(){
   } catch (err) {
     state.studyError = true;
   }
+  render();
+}
+
+// Admin picked a study from the picker (or is switching to a different one
+// via "All Studies"). Loads its name/taxonomy, then its entries — mirrors
+// what page load already does for a direct /s/{id}/admin link.
+async function selectStudy(studyId){
+  state.activeStudyId = studyId;
+  state.studyLoaded = false;
+  state.studyError = false;
+  state.entries = [];
+  state.week = isoWeek(todayLocal());
+  state.dayFilter = "all";
+  state.expandedTeams = new Set();
+  render();
+  await loadStudy(studyId);
+  if(state.studyLoaded){
+    fetchEntries();
+    startPolling();
+  }
+}
+
+function backToStudyPicker(){
+  if(pollTimer) clearInterval(pollTimer);
+  state.activeStudyId = null;
+  state.entries = [];
+  state.studyError = false;
+  render();
+  fetchMyStudies();
+}
+
+async function fetchMyStudies(){
+  state.studiesLoading = true;
+  render();
+  try {
+    const res = await fetch("/api/studies", { headers: { "x-user-token": state.token } });
+    const data = await res.json();
+    state.studiesList = res.ok ? (data.studies || []) : [];
+  } catch (err) {
+    state.studiesList = [];
+  }
+  state.studiesLoading = false;
   render();
 }
 
@@ -253,6 +317,16 @@ function render(){
   if(state.studyError){
     app.innerHTML = `<header><h1>Taxonomy Logger</h1><span class="sub">Admin</span></header>
       <div class="loadingwrap">This study link isn't valid, or the study may have been removed.<br><br>Check the link with your DRI / Lab Admin.</div>`;
+    if(state.user){
+      const backWrap = document.createElement("div");
+      backWrap.style.cssText = "text-align:center;margin-top:-30px;";
+      const backBtn = document.createElement("button");
+      backBtn.textContent = "‹ Back to Studies";
+      backBtn.style.cssText = "background:none;border:none;color:var(--teal);font-weight:600;text-decoration:underline;cursor:pointer;font-size:13px;";
+      backBtn.onclick = backToStudyPicker;
+      backWrap.appendChild(backBtn);
+      app.appendChild(backWrap);
+    }
     return;
   }
   if(!state.studyLoaded){
@@ -260,7 +334,65 @@ function render(){
       <div class="loadingwrap">Loading study…</div>`;
     return;
   }
-  app.appendChild((state.user || state.teamId) ? renderDashboard() : renderGate());
+  if(!(state.user || state.teamId)){
+    app.appendChild(renderGate());
+    return;
+  }
+  if(state.user && !state.activeStudyId){
+    app.appendChild(renderStudyPicker());
+    return;
+  }
+  app.appendChild(renderDashboard());
+}
+
+function renderStudyPicker(){
+  const wrap = document.createElement("div");
+  const header = document.createElement("header");
+  header.innerHTML = `<h1>Taxonomy Logger</h1><span class="sub">Admin</span>`;
+  const userinfo = document.createElement("div");
+  userinfo.className = "userinfo";
+  userinfo.innerHTML = `<span>${escapeHtml(state.user.email)}</span>`;
+  const logoutBtn = document.createElement("button");
+  logoutBtn.textContent = "Log Out";
+  logoutBtn.onclick = logout;
+  userinfo.appendChild(logoutBtn);
+  header.appendChild(userinfo);
+  wrap.appendChild(header);
+
+  const main = document.createElement("main");
+  const heading = document.createElement("h2");
+  heading.style.cssText = "font-size:16px;font-weight:700;margin:8px 0 16px;color:var(--ink);";
+  heading.textContent = "Select a Study";
+  main.appendChild(heading);
+
+  if(state.studiesLoading){
+    const loading = document.createElement("div");
+    loading.className = "empty";
+    loading.textContent = "Loading your studies…";
+    main.appendChild(loading);
+  } else if(state.studiesList.length === 0){
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = "No studies assigned to you yet.";
+    main.appendChild(empty);
+  } else {
+    const list = document.createElement("div");
+    list.className = "studypicker-list";
+    state.studiesList.forEach(s => {
+      const row = document.createElement("button");
+      row.className = "studypicker-row";
+      row.innerHTML = `
+        <div class="name">${escapeHtml(s.name)}</div>
+        <div class="meta">${s.teamCount} teams · ${s.signTypes.length} taxonomy items</div>
+      `;
+      row.onclick = () => selectStudy(s.id);
+      list.appendChild(row);
+    });
+    main.appendChild(list);
+  }
+
+  wrap.appendChild(main);
+  return wrap;
 }
 
 function renderGate(){
@@ -342,8 +474,12 @@ async function tryLogin(){
       sessionStorage.setItem("tl_admin_token", state.token);
       state.authErr = "";
       render();
-      fetchEntries();
-      startPolling();
+      if(state.activeStudyId){
+        fetchEntries();
+        startPolling();
+      } else {
+        fetchMyStudies();
+      }
     }
   } catch (err) {
     state.authErr = "Couldn't reach server";
@@ -359,6 +495,11 @@ function logout(){
   state.mode = "teamSelect";
   state.authErr = "";
   state.entries = [];
+  // Reset back to whatever the URL itself encodes, so a fresh login always
+  // re-evaluates whether to show the study picker rather than silently
+  // reusing whichever study was picked last session.
+  state.activeStudyId = STUDY_ID !== "default" ? STUDY_ID : null;
+  state.studiesList = [];
   if(pollTimer) clearInterval(pollTimer);
   render();
 }
@@ -367,7 +508,7 @@ function renderDashboard(){
   const wrap = document.createElement("div");
 
   const header = document.createElement("header");
-  const sub = STUDY_ID === "default" ? "Admin" : escapeHtml(STUDY_NAME);
+  const sub = currentStudyId() === "default" ? "Admin" : escapeHtml(STUDY_NAME);
   header.innerHTML = `<h1>Taxonomy Logger</h1><span class="sub">${sub}</span>
     <span class="livepill"><span class="livedot"></span>Live</span>`;
   const userinfo = document.createElement("div");
@@ -380,6 +521,12 @@ function renderDashboard(){
     userinfo.appendChild(switchBtn);
   } else {
     userinfo.innerHTML = `<span>${escapeHtml(state.user.email)}</span>`;
+    // Only an admin account (never a team) can hop between studies —
+    // this is the escape hatch from having to bookmark a link per study.
+    const allStudiesBtn = document.createElement("button");
+    allStudiesBtn.textContent = "‹ All Studies";
+    allStudiesBtn.onclick = backToStudyPicker;
+    userinfo.insertBefore(allStudiesBtn, userinfo.firstChild);
     const logoutBtn = document.createElement("button");
     logoutBtn.textContent = "Log Out";
     logoutBtn.onclick = logout;
@@ -467,13 +614,13 @@ function renderDashboard(){
   const exportRunsBtn = topbar.querySelector("#exportRunsBtn");
   if(exportRunsBtn){
     exportRunsBtn.onclick = () => {
-      window.location.href = `/api/entries?week=${encodeURIComponent(state.week)}&study=${encodeURIComponent(STUDY_ID)}&format=csv`;
+      window.location.href = `/api/entries?week=${encodeURIComponent(state.week)}&study=${encodeURIComponent(currentStudyId())}&format=csv`;
     };
   }
   const exportTallyBtn = topbar.querySelector("#exportTallyBtn");
   if(exportTallyBtn){
     exportTallyBtn.onclick = () => {
-      window.location.href = `/api/entries?week=${encodeURIComponent(state.week)}&study=${encodeURIComponent(STUDY_ID)}&format=csv&view=tally`;
+      window.location.href = `/api/entries?week=${encodeURIComponent(state.week)}&study=${encodeURIComponent(currentStudyId())}&format=csv&view=tally`;
     };
   }
 
@@ -763,7 +910,7 @@ async function bulkSaveRun(round, runKey){
       fetch("/api/entries", {
         method: "PATCH",
         headers: authHeaders(),
-        body: JSON.stringify({ week: state.week, id: entry.id, studyId: STUDY_ID, teamId: state.teamId || undefined, updates })
+        body: JSON.stringify({ week: state.week, id: entry.id, studyId: currentStudyId(), teamId: state.teamId || undefined, updates })
       }).then(res => { if(!res.ok) throw new Error("Save failed"); return res.json(); })
     ));
     const updatedById = new Map(results.map(r => [r.entry.id, r.entry]));
@@ -783,7 +930,7 @@ async function deleteRun(round){
       fetch("/api/entries", {
         method: "DELETE",
         headers: authHeaders(),
-        body: JSON.stringify({ week: state.week, id: entry.id, studyId: STUDY_ID })
+        body: JSON.stringify({ week: state.week, id: entry.id, studyId: currentStudyId() })
       })
     ));
     if(results.some(r => !r.ok)) throw new Error("Delete failed");
@@ -806,7 +953,7 @@ async function fetchEntries(opts){
     render();
   }
   try {
-    const res = await fetch(`/api/entries?week=${encodeURIComponent(state.week)}&study=${encodeURIComponent(STUDY_ID)}`);
+    const res = await fetch(`/api/entries?week=${encodeURIComponent(state.week)}&study=${encodeURIComponent(currentStudyId())}`);
     const data = await res.json();
     const nextEntries = data.entries || [];
     const changed = JSON.stringify(nextEntries) !== JSON.stringify(state.entries);
@@ -830,7 +977,7 @@ async function deleteEntry(entry){
     const res = await fetch("/api/entries", {
       method: "DELETE",
       headers: authHeaders(),
-      body: JSON.stringify({ week: state.week, id: entry.id, studyId: STUDY_ID })
+      body: JSON.stringify({ week: state.week, id: entry.id, studyId: currentStudyId() })
     });
     if(!res.ok){
       const data = await res.json().catch(() => ({}));
@@ -848,7 +995,7 @@ async function saveEdit(entry){
     const res = await fetch("/api/entries", {
       method: "PATCH",
       headers: authHeaders(),
-      body: JSON.stringify({ week: state.week, id: entry.id, studyId: STUDY_ID, teamId: state.teamId || undefined, updates: state.editDraft })
+      body: JSON.stringify({ week: state.week, id: entry.id, studyId: currentStudyId(), teamId: state.teamId || undefined, updates: state.editDraft })
     });
     if(!res.ok){
       const data = await res.json().catch(() => ({}));
@@ -877,8 +1024,14 @@ async function init(){
   await restoreSession();
   render();
   if(state.user){
-    fetchEntries();
-    startPolling();
+    if(state.activeStudyId){
+      fetchEntries();
+      startPolling();
+    } else {
+      // Landed on the plain /admin with no study baked into the URL —
+      // show the picker instead of guessing which study they meant.
+      fetchMyStudies();
+    }
   }
   if(STUDY_ID !== "default"){
     loadStudy();
