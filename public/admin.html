@@ -144,8 +144,11 @@
 <div id="app"></div>
 
 <script>
-const STUDY_MATCH = window.location.pathname.match(/^\/s\/([^\/]+)/);
-const STUDY_ID = STUDY_MATCH ? STUDY_MATCH[1] : "default";
+// No more per-study URL — a field team resolves which study they're in via
+// a name + passcode gate (see renderGate/resolveStudy), cached in
+// localStorage under the same key index.html uses so the study carries
+// over automatically when a team clicks through to this page.
+let STUDY_ID = null;
 
 let SIGN_EMOJI = {
   "Construction Sign": "🚧", "Crosswalk": "🦓", "Cycling": "🚴", "Do Not Enter": "⛔",
@@ -188,7 +191,10 @@ function todayLocal(){
 }
 
 let state = {
-  studyLoaded: STUDY_ID === "default",
+  // Only meaningful for the admin-account picker flow (selectStudy/loadStudy
+  // below) — a field team resolves STUDY_ID directly via resolveStudy() and
+  // never touches these.
+  studyLoaded: false,
   studyError: false,
 
   // Access: either a field team (name only, no login) or an authenticated lab admin.
@@ -197,13 +203,12 @@ let state = {
   user: null,
   token: sessionStorage.getItem("tl_admin_token"),
   authErr: "",
+  gateLoading: false,
 
-  // Which study's entries are currently loaded. Seeded from the URL when the
-  // link is study-specific (/s/{id}/admin) or the legacy unscoped bucket
-  // (/admin, "default"). Left null only for an admin account landing on the
-  // plain /admin with no study baked into the URL — that's the signal to
-  // show the study picker instead of guessing which study they meant.
-  activeStudyId: STUDY_ID !== "default" ? STUDY_ID : null,
+  // Which study's entries are currently loaded, for an admin account only —
+  // null is the signal to show the study picker. A field team's study lives
+  // in STUDY_ID instead (see currentStudyId()).
+  activeStudyId: null,
   studiesList: [],
   studiesLoading: false,
 
@@ -224,16 +229,16 @@ const app = document.getElementById("app");
 
 function isAdmin(){ return !!state.user; }
 
-// The study whose entries are actually being fetched/edited right now — as
-// opposed to STUDY_ID, which is frozen at whatever the URL said on page
-// load. Falls back to STUDY_ID so team-login mode (which never touches the
-// picker) keeps working unchanged.
+// The study whose entries are actually being fetched/edited right now — an
+// admin account's picked study takes priority, otherwise a field team's
+// resolved STUDY_ID.
 function currentStudyId(){ return state.activeStudyId ?? STUDY_ID; }
 
+// Only used by the admin-account picker (selectStudy below), which already
+// knows the study's id directly.
 async function loadStudy(studyId){
-  const id = studyId || STUDY_ID;
   try {
-    const res = await fetch(`/api/studies?id=${encodeURIComponent(id)}`);
+    const res = await fetch(`/api/studies?id=${encodeURIComponent(studyId)}`);
     if(!res.ok) throw new Error("not found");
     const data = await res.json();
     const s = data.study;
@@ -245,6 +250,71 @@ async function loadStudy(studyId){
   } catch (err) {
     state.studyError = true;
   }
+  render();
+}
+
+// A field team resolves its study by name + passcode instead — this comes
+// back with the full study in one shot, so unlike loadStudy() above there's
+// no separate "loading" phase once STUDY_ID is set.
+async function resolveStudy(name, passcode, opts){
+  const fromCache = !!(opts && opts.fromCache);
+  state.gateLoading = true;
+  if(!fromCache) state.authErr = "";
+  render();
+  try {
+    const res = await fetch(`/api/studies?name=${encodeURIComponent(name)}&passcode=${encodeURIComponent(passcode)}`);
+    const data = await res.json();
+    if(!res.ok){
+      // A stale cached passcode should fail silently on an auto-attempt —
+      // the team never typed anything, so there's nothing to blame them
+      // for. It just falls back to the gate for them to enter it fresh.
+      localStorage.removeItem("tl_study");
+      state.gateLoading = false;
+      if(!fromCache) state.authErr = data.error || "Couldn't find that study";
+      render();
+      return;
+    }
+    const s = data.study;
+    STUDY_ID = s.id;
+    STUDY_NAME = s.name;
+    SIGN_EMOJI = {};
+    (s.signTypes || []).forEach(t => { SIGN_EMOJI[t.name] = t.emoji; });
+    SIGN_TYPES = Object.keys(SIGN_EMOJI).sort((a,b) => a.localeCompare(b));
+    localStorage.setItem("tl_study", JSON.stringify({ name, passcode }));
+    state.gateLoading = false;
+    state.authErr = "";
+    render();
+  } catch (err) {
+    state.gateLoading = false;
+    if(!fromCache) state.authErr = "Couldn't reach the server — try again";
+    render();
+  }
+}
+
+function tryAutoResolveFromCache(){
+  let cached;
+  try {
+    cached = JSON.parse(localStorage.getItem("tl_study") || "null");
+  } catch (err) {
+    cached = null;
+  }
+  if(cached && cached.name && cached.passcode){
+    resolveStudy(cached.name, cached.passcode, { fromCache: true });
+  }
+}
+
+// Distinct from "Switch Team" (logout() below) — that keeps the same study
+// and only resets which team is logged in. This clears the resolved study
+// itself, for when a team needs to work in a different study entirely.
+function switchStudy(){
+  if(!confirm("Switch to a different study? You'll need its name and passcode again.")) return;
+  if(pollTimer) clearInterval(pollTimer);
+  localStorage.removeItem("tl_study");
+  STUDY_ID = null;
+  STUDY_NAME = "Taxonomy Logger";
+  state.teamId = null;
+  state.entries = [];
+  state.authErr = "";
   render();
 }
 
@@ -314,32 +384,34 @@ async function restoreSession(){
 
 function render(){
   app.innerHTML = "";
-  if(state.studyError){
-    app.innerHTML = `<header><h1>Taxonomy Logger</h1><span class="sub">Admin</span></header>
-      <div class="loadingwrap">This study link isn't valid, or the study may have been removed.<br><br>Check the link with your DRI / Lab Admin.</div>`;
-    if(state.user){
-      const backWrap = document.createElement("div");
-      backWrap.style.cssText = "text-align:center;margin-top:-30px;";
-      const backBtn = document.createElement("button");
-      backBtn.textContent = "‹ Back to Studies";
-      backBtn.style.cssText = "background:none;border:none;color:var(--teal);font-weight:600;text-decoration:underline;cursor:pointer;font-size:13px;";
-      backBtn.onclick = backToStudyPicker;
-      backWrap.appendChild(backBtn);
-      app.appendChild(backWrap);
-    }
-    return;
-  }
-  if(!state.studyLoaded){
-    app.innerHTML = `<header><h1>Taxonomy Logger</h1><span class="sub">Admin</span></header>
-      <div class="loadingwrap">Loading study…</div>`;
-    return;
-  }
   if(!(state.user || state.teamId)){
     app.appendChild(renderGate());
     return;
   }
   if(state.user && !state.activeStudyId){
     app.appendChild(renderStudyPicker());
+    return;
+  }
+  // From here on there's a concrete study to show (a field team's resolved
+  // STUDY_ID, or an admin's picked activeStudyId) — studyLoaded/studyError
+  // only matter for the admin picker's own loadStudy() fetch; a field
+  // team's resolveStudy() already has everything by the time STUDY_ID is set.
+  if(state.user && state.studyError){
+    app.innerHTML = `<header><h1>Taxonomy Logger</h1><span class="sub">Admin</span></header>
+      <div class="loadingwrap">That study couldn't be loaded — it may have just been removed.</div>`;
+    const backWrap = document.createElement("div");
+    backWrap.style.cssText = "text-align:center;margin-top:-30px;";
+    const backBtn = document.createElement("button");
+    backBtn.textContent = "‹ Back to Studies";
+    backBtn.style.cssText = "background:none;border:none;color:var(--teal);font-weight:600;text-decoration:underline;cursor:pointer;font-size:13px;";
+    backBtn.onclick = backToStudyPicker;
+    backWrap.appendChild(backBtn);
+    app.appendChild(backWrap);
+    return;
+  }
+  if(state.user && !state.studyLoaded){
+    app.innerHTML = `<header><h1>Taxonomy Logger</h1><span class="sub">Admin</span></header>
+      <div class="loadingwrap">Loading study…</div>`;
     return;
   }
   app.appendChild(renderDashboard());
@@ -416,9 +488,35 @@ function renderGate(){
     box.querySelector("#loginBtn").onclick = tryLogin;
     box.querySelector("#backBtn").onclick = () => { state.mode = "teamSelect"; state.authErr = ""; render(); };
     box.querySelector("#emailInput").addEventListener("keydown", (e) => { if(e.key === "Enter") tryLogin(); });
+  } else if(!STUDY_ID){
+    // A field team resolves its study before it can even get to the
+    // team-name prompt — same name + passcode gate as the field capture app.
+    box.innerHTML = `
+      <h2>Study Access</h2>
+      <p>Enter the study name and passcode your Lab Admin or DRI gave you.</p>
+      <input id="studyNameInput" type="text" placeholder="Study Name" autocomplete="off" />
+      <input id="studyPasscodeInput" type="password" placeholder="Study Passcode" autocomplete="off" />
+      <button class="primary" id="studyGateBtn">${state.gateLoading ? "Checking…" : "Continue"}</button>
+      <div class="toggle">Lab admin? <button id="adminLoginBtn">Log in here</button></div>
+      <div class="err">${state.authErr}</div>
+    `;
+    const submitStudy = () => {
+      const name = document.getElementById("studyNameInput").value.trim();
+      const passcode = document.getElementById("studyPasscodeInput").value;
+      if(!name || !passcode){
+        state.authErr = "Study name and passcode are required";
+        render();
+        return;
+      }
+      resolveStudy(name, passcode);
+    };
+    box.querySelector("#studyGateBtn").onclick = submitStudy;
+    box.querySelector("#adminLoginBtn").onclick = () => { state.mode = "adminLogin"; state.authErr = ""; render(); };
+    box.querySelectorAll("input").forEach(inp => inp.addEventListener("keydown", (e) => { if(e.key === "Enter") submitStudy(); }));
+    setTimeout(() => box.querySelector("#studyNameInput")?.focus(), 0);
   } else {
-    // Field teams land here by default — straight to a team-name prompt, no
-    // intermediate "who are you" choice screen.
+    // Field teams land here once their study is resolved — straight to a
+    // team-name prompt, no intermediate "who are you" choice screen.
     box.innerHTML = `
       <h2>Field Team</h2>
       <p>Enter your team name to view and edit the runs your team submitted.</p>
@@ -495,10 +593,11 @@ function logout(){
   state.mode = "teamSelect";
   state.authErr = "";
   state.entries = [];
-  // Reset back to whatever the URL itself encodes, so a fresh login always
-  // re-evaluates whether to show the study picker rather than silently
-  // reusing whichever study was picked last session.
-  state.activeStudyId = STUDY_ID !== "default" ? STUDY_ID : null;
+  // Always null on a fresh login, so an admin account re-evaluates via the
+  // picker rather than silently reusing whichever study was picked last
+  // session. Irrelevant to "Switch Team" (a field team's study lives in
+  // STUDY_ID, untouched here) — see switchStudy() for actually leaving a study.
+  state.activeStudyId = null;
   state.studiesList = [];
   if(pollTimer) clearInterval(pollTimer);
   render();
@@ -508,17 +607,20 @@ function renderDashboard(){
   const wrap = document.createElement("div");
 
   const header = document.createElement("header");
-  const sub = currentStudyId() === "default" ? "Admin" : escapeHtml(STUDY_NAME);
-  header.innerHTML = `<h1>Taxonomy Logger</h1><span class="sub">${sub}</span>
+  header.innerHTML = `<h1>Taxonomy Logger</h1><span class="sub">${escapeHtml(STUDY_NAME)}</span>
     <span class="livepill"><span class="livedot"></span>Live</span>`;
   const userinfo = document.createElement("div");
   userinfo.className = "userinfo";
   if(state.teamId){
     userinfo.innerHTML = `<span>${escapeHtml(state.teamId)}</span>`;
-    const switchBtn = document.createElement("button");
-    switchBtn.textContent = "Switch Team";
-    switchBtn.onclick = logout;
-    userinfo.appendChild(switchBtn);
+    const switchTeamBtn = document.createElement("button");
+    switchTeamBtn.textContent = "Switch Team";
+    switchTeamBtn.onclick = logout;
+    userinfo.appendChild(switchTeamBtn);
+    const switchStudyBtn = document.createElement("button");
+    switchStudyBtn.textContent = "Switch Study";
+    switchStudyBtn.onclick = switchStudy;
+    userinfo.appendChild(switchStudyBtn);
   } else {
     userinfo.innerHTML = `<span>${escapeHtml(state.user.email)}</span>`;
     // Only an admin account (never a team) can hop between studies —
@@ -1028,13 +1130,15 @@ async function init(){
       fetchEntries();
       startPolling();
     } else {
-      // Landed on the plain /admin with no study baked into the URL —
-      // show the picker instead of guessing which study they meant.
+      // No study baked into a URL anymore — show the picker instead of
+      // guessing which study they meant.
       fetchMyStudies();
     }
-  }
-  if(STUDY_ID !== "default"){
-    loadStudy();
+  } else {
+    // Not a restored admin session — try to skip straight past the study
+    // gate using whatever a field team resolved last time (possibly just
+    // now, on index.html, since this is the same localStorage key).
+    tryAutoResolveFromCache();
   }
 }
 

@@ -144,7 +144,35 @@ export default async (req: Request, context: Context) => {
     if (id) {
       const study = await store.get(id, { type: "json" }) as Study | null;
       if (!study) return new Response("Not found", { status: 404 });
+      // Study Builder's "copy passcode" action asks for the real value back
+      // (everywhere else a study is fetched by id, the caller is the
+      // unauthenticated field/admin app and never needs it) — gated on the
+      // same edit-permission check as the rest of the study's details.
+      if (url.searchParams.get("reveal") === "1") {
+        const user = await resolveUser(req);
+        if (!canEditStudy(user, study)) {
+          return Response.json({ error: "you do not have permission to view this study's passcode" }, { status: 403 });
+        }
+        return Response.json({ study });
+      }
       return Response.json({ study: sanitizeForFieldApp(study) });
+    }
+
+    // Unauthenticated by design — this is how a field team (no account)
+    // gets into a study at all now that there's no per-study URL to share.
+    // A study's name isn't guaranteed unique, so the passcode is the real
+    // access control here, not the name.
+    const name = url.searchParams.get("name");
+    const passcode = url.searchParams.get("passcode");
+    if (name && passcode) {
+      const { blobs } = await store.list();
+      const studies = await Promise.all(blobs.map((b) => store.get(b.key, { type: "json" }))) as Study[];
+      const normalizedName = name.trim().toLowerCase();
+      const match = studies.find((s) => s && s.name.trim().toLowerCase() === normalizedName && s.passcode === passcode);
+      if (!match) {
+        return Response.json({ error: "No study matches that name and passcode" }, { status: 401 });
+      }
+      return Response.json({ study: sanitizeForFieldApp(match) });
     }
 
     const { blobs } = await store.list();

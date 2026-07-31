@@ -170,9 +170,16 @@
 <div id="app"></div>
 
 <script>
-/* ---------------- STUDY RESOLUTION ---------------- */
-const STUDY_MATCH = window.location.pathname.match(/^\/s\/([^\/]+)/);
-const STUDY_ID = STUDY_MATCH ? STUDY_MATCH[1] : "default";
+/* ---------------- STUDY RESOLUTION ----------------
+   There's no more per-study URL to distribute — every session starts at
+   the same address and resolves which study it's working with via a name
+   + passcode gate (see renderStudyGate/resolveStudy below), same as the
+   admin dashboard's "select a study" picker does for logged-in accounts.
+   The resolved credentials are cached in localStorage (shared with
+   admin.html, same origin) so a field team doesn't have to retype them on
+   every visit, and so clicking "Edit Runs" carries the study over without
+   asking again. */
+let STUDY_ID = null;
 
 /* ---------------- TAXONOMY (defaults for the root app; overridden per-study) ---------------- */
 let SIGN_EMOJI = {
@@ -230,8 +237,8 @@ function todayLocal(){
 
 /* ---------------- STATE ---------------- */
 let state = {
-  studyLoaded: STUDY_ID === "default",
-  studyError: false,
+  gateErr: "",
+  gateLoading: false,
   date: todayLocal(),
   // Not persisted — each run re-confirms who's logging (a device may be
   // shared across teams over the course of a day), so team/protocol reset
@@ -331,26 +338,71 @@ function resolveWeekLocation(){
   state.locationCity = match ? match.city : null;
 }
 
-/* ---------------- STUDY LOADING ---------------- */
-async function loadStudy(){
+/* ---------------- STUDY RESOLUTION (name + passcode) ---------------- */
+async function resolveStudy(name, passcode, opts){
+  const fromCache = !!(opts && opts.fromCache);
+  state.gateLoading = true;
+  if(!fromCache) state.gateErr = "";
+  render();
   try {
-    const res = await fetch(`/api/studies?id=${encodeURIComponent(STUDY_ID)}`);
-    if(!res.ok) throw new Error("not found");
+    const res = await fetch(`/api/studies?name=${encodeURIComponent(name)}&passcode=${encodeURIComponent(passcode)}`);
     const data = await res.json();
+    if(!res.ok){
+      // A stale cached passcode (changed or the study got removed) should
+      // fail silently on an auto-attempt — the team never typed anything,
+      // so there's nothing to blame them for. It just falls back to the
+      // gate for them to enter it fresh.
+      localStorage.removeItem("tl_study");
+      state.gateLoading = false;
+      if(!fromCache) state.gateErr = data.error || "Couldn't find that study";
+      render();
+      return;
+    }
     const s = data.study;
+    STUDY_ID = s.id;
     STUDY_NAME = s.name;
-    PROTOCOLS = s.protocols.length ? s.protocols : PROTOCOLS;
+    PROTOCOLS = s.protocols && s.protocols.length ? s.protocols : PROTOCOLS;
     LOCATION_SCHEDULE = Array.isArray(s.locationSchedule) ? s.locationSchedule : [];
     resolveWeekLocation();
     SIGN_EMOJI = {};
-    s.signTypes.forEach(t => { SIGN_EMOJI[t.name] = t.emoji; });
+    (s.signTypes || []).forEach(t => { SIGN_EMOJI[t.name] = t.emoji; });
     SIGN_TYPES = Object.keys(SIGN_EMOJI).sort((a,b) => a.localeCompare(b));
-    state.studyLoaded = true;
+    localStorage.setItem("tl_study", JSON.stringify({ name, passcode }));
+    state.gateLoading = false;
+    state.gateErr = "";
+    render();
+    fetchAssignments();
   } catch (err) {
-    state.studyError = true;
+    state.gateLoading = false;
+    if(!fromCache) state.gateErr = "Couldn't reach the server — try again";
+    render();
   }
+}
+
+function tryAutoResolveFromCache(){
+  let cached;
+  try {
+    cached = JSON.parse(localStorage.getItem("tl_study") || "null");
+  } catch (err) {
+    cached = null;
+  }
+  if(cached && cached.name && cached.passcode){
+    resolveStudy(cached.name, cached.passcode, { fromCache: true });
+  }
+}
+
+function switchStudy(){
+  if(!confirm("Switch to a different study? You'll need its name and passcode again.")) return;
+  stopPolling();
+  localStorage.removeItem("tl_study");
+  STUDY_ID = null;
+  STUDY_NAME = "Taxonomy Logger";
+  state.teamId = null; state.protocol = null; state.environment = null; state.objectKit = null;
+  state.route = ""; state.assignedRoutes = []; state.assignments = [];
+  state.locationState = null; state.locationCity = null;
+  state.tab = "log";
+  state.gateErr = "";
   render();
-  fetchAssignments();
 }
 
 /* ---------------- RENDER ---------------- */
@@ -363,14 +415,12 @@ function render(){
   app.innerHTML = "";
   app.appendChild(renderHeader());
 
-  if(state.studyError){
-    app.appendChild(renderStudyError());
-  } else if(!state.studyLoaded){
-    app.appendChild(renderStudyLoading());
-  } else if(STUDY_ID !== "default" && !state.locationCity){
+  if(!STUDY_ID){
+    app.appendChild(state.gateLoading ? renderStudyLoading() : renderStudyGate());
+  } else if(!state.locationCity){
     // Location is required, foundational metadata now (not optional
     // context) — block the whole app rather than let entries go out
-    // without it, same as an invalid study link does.
+    // without it.
     app.appendChild(renderLocationMissing());
   } else if(state.tab === "weekly" && !setupComplete()){
     app.appendChild(renderEarlyEditBar());
@@ -401,8 +451,19 @@ function render(){
 
 function renderHeader(){
   const h = document.createElement("header");
-  const eyebrow = STUDY_ID === "default" ? "Field Capture" : escapeHtml(STUDY_NAME);
-  h.innerHTML = `<div><span class="brand-eyebrow">${eyebrow}</span><h1>Taxonomy Logger</h1></div><span class="livepill"><span class="livedot"></span>Live</span>`;
+  const eyebrow = STUDY_ID ? escapeHtml(STUDY_NAME) : "Field Capture";
+  h.innerHTML = `<div><span class="brand-eyebrow">${eyebrow}</span><h1>Taxonomy Logger</h1></div>`;
+  const right = document.createElement("div");
+  right.style.cssText = "margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:4px;";
+  right.innerHTML = `<span class="livepill" style="margin-left:0;"><span class="livedot"></span>Live</span>`;
+  if(STUDY_ID){
+    const switchBtn = document.createElement("button");
+    switchBtn.textContent = "Switch Study";
+    switchBtn.style.cssText = "background:none;border:none;color:var(--ink-soft);font-size:11px;font-weight:600;padding:0;text-decoration:underline;cursor:pointer;";
+    switchBtn.onclick = switchStudy;
+    right.appendChild(switchBtn);
+  }
+  h.appendChild(right);
   return h;
 }
 
@@ -412,9 +473,35 @@ function renderStudyLoading(){
   return main;
 }
 
-function renderStudyError(){
+function renderStudyGate(){
   const main = document.createElement("main");
-  main.innerHTML = `<div class="loadingwrap">This study link isn't valid, or the study may have been removed.<br><br>Check the link with your DRI / Lab Admin.</div>`;
+  const wrap = document.createElement("div");
+  wrap.style.cssText = "max-width:360px;margin:40px auto 0;background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);padding:26px;box-shadow:var(--shadow-md);";
+  wrap.innerHTML = `
+    <h2 style="font-size:16px;margin:0 0 6px;font-weight:700;color:var(--ink);">Study Access</h2>
+    <p style="font-size:13px;color:var(--ink-soft);margin:0 0 18px;line-height:1.4;">Enter the study name and passcode your Lab Admin or DRI gave you.</p>
+    <input id="studyNameInput" type="text" placeholder="Study Name" autocomplete="off" style="margin-bottom:10px;" />
+    <input id="studyPasscodeInput" type="password" placeholder="Study Passcode" autocomplete="off" style="margin-bottom:14px;" />
+    <div style="color:var(--red);font-size:12.5px;min-height:16px;margin-bottom:10px;">${escapeHtml(state.gateErr)}</div>
+  `;
+  const btn = document.createElement("button");
+  btn.className = "logbtn";
+  btn.textContent = "Continue";
+  const submit = () => {
+    const name = wrap.querySelector("#studyNameInput").value.trim();
+    const passcode = wrap.querySelector("#studyPasscodeInput").value;
+    if(!name || !passcode){
+      state.gateErr = "Study name and passcode are required";
+      render();
+      return;
+    }
+    resolveStudy(name, passcode);
+  };
+  btn.onclick = submit;
+  wrap.appendChild(btn);
+  wrap.querySelectorAll("input").forEach(inp => inp.addEventListener("keydown", (e) => { if(e.key === "Enter") submit(); }));
+  main.appendChild(wrap);
+  setTimeout(() => wrap.querySelector("#studyNameInput")?.focus(), 0);
   return main;
 }
 
@@ -1032,10 +1119,9 @@ function renderWeekly(){
     main.appendChild(renderRoundCard(round));
   });
 
-  const adminHref = STUDY_ID === "default" ? "/admin" : `/s/${STUDY_ID}/admin`;
   const footer = document.createElement("div");
   footer.style.cssText = "text-align:center;margin-top:24px;";
-  footer.innerHTML = `<a href="${adminHref}" style="color:var(--ink-soft);font-size:12px;text-decoration:underline;">Team lead? Open admin dashboard →</a>`;
+  footer.innerHTML = `<a href="/admin" style="color:var(--ink-soft);font-size:12px;text-decoration:underline;">Team lead? Open admin dashboard →</a>`;
   main.appendChild(footer);
 
   return main;
@@ -1188,8 +1274,7 @@ function escapeHtml(s){
 }
 
 render();
-if(STUDY_ID !== "default") loadStudy();
-else fetchAssignments();
+tryAutoResolveFromCache();
 </script>
 </body>
 </html>

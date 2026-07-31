@@ -88,11 +88,6 @@
   .launchbtn:disabled{background:var(--border);color:var(--ink-soft);}
 
   .result{background:var(--teal-bg);border:1px solid var(--teal);border-radius:var(--r-md);padding:16px;margin-top:16px;}
-  .result .linkrow{display:flex;align-items:center;gap:8px;margin-top:8px;background:var(--card);border:1px solid var(--border);
-    border-radius:var(--r-sm);padding:9px 12px;}
-  .result .linkrow code{flex:1;font-size:12.5px;overflow-x:auto;white-space:nowrap;color:var(--ink);}
-  .result .linkrow button{background:var(--teal);color:#fff;border:none;border-radius:var(--r-sm);padding:6px 12px;
-    font-size:11.5px;font-weight:600;flex-shrink:0;}
 
   .studylist{display:flex;flex-direction:column;gap:10px;}
   .studyrow{background:var(--card);border:1px solid var(--border);border-radius:var(--r-md);padding:14px 16px;
@@ -444,15 +439,18 @@ function renderForm(){
   if(state.launchResult){
     const result = document.createElement("div");
     result.className = "result";
-    const origin = window.location.origin;
     result.innerHTML = `
       <div style="font-weight:700;font-size:13.5px;">Study saved: ${escapeHtml(state.launchResult.name)}</div>
-      <div class="linkrow"><code>${origin}/s/${state.launchResult.id}</code><button data-copy="${origin}/s/${state.launchResult.id}">Copy Field Link</button></div>
-      <div class="linkrow"><code>${origin}/s/${state.launchResult.id}/admin</code><button data-copy="${origin}/s/${state.launchResult.id}/admin">Copy Admin Link</button></div>
+      <div style="font-size:12.5px;color:var(--ink-soft);margin-top:6px;line-height:1.4;">
+        Give field teams and Lab Admins the study name and this passcode — that's all they need to get in.
+      </div>
     `;
-    result.querySelectorAll("button[data-copy]").forEach(btn => {
-      btn.onclick = () => { navigator.clipboard.writeText(btn.dataset.copy); btn.textContent = "Copied!"; setTimeout(() => render(), 1200); };
-    });
+    const copyBtn = document.createElement("button");
+    copyBtn.className = "launchbtn";
+    copyBtn.style.cssText = "margin-top:10px;";
+    copyBtn.textContent = "Copy Passcode";
+    copyBtn.onclick = () => copyStudyPasscode(state.launchResult.id, copyBtn);
+    result.appendChild(copyBtn);
     card.appendChild(result);
   }
 
@@ -900,6 +898,30 @@ async function createUser(email, password, role){
   }
 }
 
+// There's no per-study URL to copy anymore — a field team or Lab Admin
+// gets into a study with just its name (already visible in the list/form)
+// and this passcode, which the server only ever returns to someone who
+// already has edit access to the study (see the ?reveal=1 branch in
+// studies.mts).
+async function copyStudyPasscode(studyId, btn){
+  const original = btn.textContent;
+  btn.textContent = "Copying…";
+  btn.disabled = true;
+  try {
+    const res = await fetch(`/api/studies?id=${encodeURIComponent(studyId)}&reveal=1`, {
+      headers: { "x-user-token": state.token }
+    });
+    const data = await res.json();
+    if(!res.ok || !data.study) throw new Error(data.error || "Couldn't retrieve passcode");
+    await navigator.clipboard.writeText(data.study.passcode || "");
+    btn.textContent = "Copied!";
+  } catch (err) {
+    btn.textContent = "Failed";
+    alert(err.message || "Couldn't copy passcode");
+  }
+  setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 1200);
+}
+
 function renderStudyList(){
   const card = document.createElement("div");
   card.className = "card";
@@ -919,7 +941,6 @@ function renderStudyList(){
 
   const list = document.createElement("div");
   list.className = "studylist";
-  const origin = window.location.origin;
 
   state.studies.forEach(s => {
     const row = document.createElement("div");
@@ -934,16 +955,12 @@ function renderStudyList(){
     const actions = document.createElement("div");
     actions.className = "actions";
 
-    const fieldBtn = document.createElement("button");
-    fieldBtn.textContent = "Field Link";
-    fieldBtn.onclick = () => { navigator.clipboard.writeText(`${origin}/s/${s.id}`); fieldBtn.textContent = "Copied!"; setTimeout(() => fieldBtn.textContent = "Field Link", 1200); };
-
-    const adminBtn = document.createElement("button");
-    adminBtn.textContent = "Admin Link";
-    adminBtn.onclick = () => { navigator.clipboard.writeText(`${origin}/s/${s.id}/admin`); adminBtn.textContent = "Copied!"; setTimeout(() => adminBtn.textContent = "Admin Link", 1200); };
-
-    actions.appendChild(fieldBtn);
-    actions.appendChild(adminBtn);
+    // There's no per-study link anymore — a field team or Lab Admin gets in
+    // with just the study name (already shown above) and this passcode.
+    const passcodeBtn = document.createElement("button");
+    passcodeBtn.textContent = "Copy Passcode";
+    passcodeBtn.onclick = () => copyStudyPasscode(s.id, passcodeBtn);
+    actions.appendChild(passcodeBtn);
     // Day-of team/kit/route/environment planning is a Lab Admin job, not
     // the DRI's — a DRI scopes the study, a Lab Admin runs the field day.
     if(state.user.role === "lab_admin" || state.user.role === "superadmin"){

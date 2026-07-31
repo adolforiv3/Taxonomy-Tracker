@@ -11,13 +11,3 @@
   from = "/studio"
   to = "/studio.html"
   status = 200
-
-[[redirects]]
-  from = "/s/:id/admin"
-  to = "/admin.html"
-  status = 200
-
-[[redirects]]
-  from = "/s/:id"
-  to = "/index.html"
-  status = 200
