@@ -146,6 +146,7 @@ let state = {
   assignmentDate: todayLocal(),
   assignments: [],
   assignmentsLoading: false,
+  assignmentTeamDraft: "", // team name typed into the create form, kept in state so it survives the re-render an "Add Backup Route" click triggers
   assignmentRoutesDraft: [{ route: "", environment: "" }], // primary + optional backups, built up in the create form
   editingAssignmentId: null, // assignment id currently being edited inline, or null
   editAssignmentKit: null,
@@ -988,6 +989,7 @@ function blankRoutesDraft(){
 
 function openAssignments(studyId){
   state.managingAssignmentsFor = studyId;
+  state.assignmentTeamDraft = "";
   state.assignmentRoutesDraft = blankRoutesDraft();
   render();
   fetchAssignmentsForStudy(studyId);
@@ -1078,7 +1080,7 @@ function renderAssignmentsView(){
   createSection.style.cssText = "padding:16px 0;border-bottom:1px solid var(--border);margin-bottom:16px;";
   createSection.innerHTML = `<h3 style="font-size:14px;margin:0 0 12px;font-weight:700;">Add Assignment</h3>`;
 
-  const teamField = fieldInput("Team Name", "text", "", () => {}, "e.g. Team A");
+  const teamField = fieldInput("Team Name", "text", state.assignmentTeamDraft, (v) => { state.assignmentTeamDraft = v; }, "e.g. Team A");
   createSection.appendChild(teamField);
 
   const kitWrap = document.createElement("div");
@@ -1105,7 +1107,7 @@ function renderAssignmentsView(){
   addBtn.className = "launchbtn";
   addBtn.textContent = "Add Assignment";
   addBtn.onclick = () => {
-    const teamId = teamField.querySelector("input").value.trim();
+    const teamId = (state.assignmentTeamDraft || "").trim();
     if(!teamId){
       addErr.textContent = "Team name is required";
       return;
@@ -1288,6 +1290,7 @@ async function createAssignment(studyId, teamId, kitNumber, routes, errEl){
       else alert(data.error || "Couldn't create assignment");
       return;
     }
+    state.assignmentTeamDraft = "";
     state.assignmentRoutesDraft = blankRoutesDraft();
     fetchAssignmentsForStudy(studyId);
   } catch (err) {
