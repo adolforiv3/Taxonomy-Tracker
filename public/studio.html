@@ -143,10 +143,13 @@ let state = {
   form: blankForm(),
   managingAssignmentsFor: null, // study id, or null
   managingLabAdminsFor: null, // study id, or null (superadmin only)
-  assignmentDate: new Date().toISOString().slice(0, 10),
+  assignmentDate: todayLocal(),
   assignments: [],
   assignmentsLoading: false,
-  assignmentRoutesDraft: [{ route: "", environment: "" }] // primary + optional backups, built up in the create form
+  assignmentRoutesDraft: [{ route: "", environment: "" }], // primary + optional backups, built up in the create form
+  editingAssignmentId: null, // assignment id currently being edited inline, or null
+  editAssignmentKit: null,
+  editAssignmentRoutesDraft: []
 };
 
 const app = document.getElementById("app");
@@ -1100,24 +1103,73 @@ function renderAssignmentsView(){
     state.assignments.forEach(a => {
       const row = document.createElement("div");
       row.className = "studyrow";
-      const routesSummary = (a.routes || []).map(r =>
-        `${escapeHtml(r.label)}: ${escapeHtml(r.route || "no route name")} (${escapeHtml(r.environment)})`
-      ).join(" · ");
-      row.innerHTML = `
-        <div>
-          <div class="name">${escapeHtml(a.teamId)}</div>
-          <div class="meta">Kit ${a.kitNumber}</div>
-          <div class="meta">${routesSummary}</div>
-        </div>
-      `;
-      const actions = document.createElement("div");
-      actions.className = "actions";
-      const delBtn = document.createElement("button");
-      delBtn.className = "del";
-      delBtn.textContent = "Remove";
-      delBtn.onclick = () => deleteAssignment(studyId, a.id, a.teamId);
-      actions.appendChild(delBtn);
-      row.appendChild(actions);
+
+      if(state.editingAssignmentId === a.id){
+        row.style.cssText += "flex-direction:column;align-items:stretch;";
+        row.innerHTML = `<div class="name">${escapeHtml(a.teamId)}</div>`;
+
+        const kitWrap = document.createElement("div");
+        kitWrap.className = "field";
+        kitWrap.innerHTML = `<label>Kit Number</label>`;
+        const kitSelect = document.createElement("select");
+        kitSelect.style.cssText = "width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:var(--r-sm);font-size:14px;background:var(--paper);color:var(--ink);";
+        for(let i = 1; i <= study.objectKitCount; i++){
+          const opt = document.createElement("option");
+          opt.value = i;
+          opt.textContent = "Kit " + i;
+          if(i === state.editAssignmentKit) opt.selected = true;
+          kitSelect.appendChild(opt);
+        }
+        kitSelect.onchange = (e) => { state.editAssignmentKit = Number(e.target.value); };
+        kitWrap.appendChild(kitSelect);
+        row.appendChild(kitWrap);
+
+        row.appendChild(routesEditor(state.editAssignmentRoutesDraft, study.environments));
+
+        const editErr = document.createElement("div");
+        editErr.style.cssText = "color:var(--red);font-size:12px;min-height:16px;margin-bottom:4px;";
+        row.appendChild(editErr);
+
+        const editActions = document.createElement("div");
+        editActions.style.cssText = "display:flex;gap:8px;";
+        const saveBtn = document.createElement("button");
+        saveBtn.textContent = "Save";
+        saveBtn.onclick = () => updateAssignment(studyId, a.id, state.editAssignmentKit, state.editAssignmentRoutesDraft, editErr);
+        const cancelBtn = document.createElement("button");
+        cancelBtn.textContent = "Cancel";
+        cancelBtn.onclick = () => { state.editingAssignmentId = null; render(); };
+        editActions.appendChild(saveBtn);
+        editActions.appendChild(cancelBtn);
+        row.appendChild(editActions);
+      } else {
+        const routesSummary = (a.routes || []).map(r =>
+          `${escapeHtml(r.label)}: ${escapeHtml(r.route || "no route name")} (${escapeHtml(r.environment)})`
+        ).join(" · ");
+        row.innerHTML = `
+          <div>
+            <div class="name">${escapeHtml(a.teamId)}</div>
+            <div class="meta">Kit ${a.kitNumber}</div>
+            <div class="meta">${routesSummary}</div>
+          </div>
+        `;
+        const actions = document.createElement("div");
+        actions.className = "actions";
+        const editBtn = document.createElement("button");
+        editBtn.textContent = "Edit";
+        editBtn.onclick = () => {
+          state.editingAssignmentId = a.id;
+          state.editAssignmentKit = a.kitNumber;
+          state.editAssignmentRoutesDraft = (a.routes || []).map(r => ({...r}));
+          render();
+        };
+        const delBtn = document.createElement("button");
+        delBtn.className = "del";
+        delBtn.textContent = "Remove";
+        delBtn.onclick = () => deleteAssignment(studyId, a.id, a.teamId);
+        actions.appendChild(editBtn);
+        actions.appendChild(delBtn);
+        row.appendChild(actions);
+      }
       list.appendChild(row);
     });
     listSection.appendChild(list);
@@ -1228,6 +1280,26 @@ async function deleteAssignment(studyId, id, teamId){
     render();
   } catch (err) {
     alert("Couldn't reach server");
+  }
+}
+
+async function updateAssignment(studyId, id, kitNumber, routes, errEl){
+  try {
+    const res = await fetch("/api/assignments", {
+      method: "PATCH",
+      headers: { "content-type": "application/json", "x-user-token": state.token },
+      body: JSON.stringify({ studyId, id, updates: { kitNumber, routes } })
+    });
+    const data = await res.json();
+    if(!res.ok){
+      if(errEl) errEl.textContent = data.error || "Couldn't save changes";
+      else alert(data.error || "Couldn't save changes");
+      return;
+    }
+    state.editingAssignmentId = null;
+    fetchAssignmentsForStudy(studyId);
+  } catch (err) {
+    if(errEl) errEl.textContent = "Couldn't reach server";
   }
 }
 
@@ -1355,6 +1427,17 @@ function removeLabAdmin(studyId, userId){
   if(!study) return;
   const next = (study.labAdminIds || []).filter(id => id !== userId);
   patchLabAdminIds(studyId, next);
+}
+
+// Date.toISOString() reports the UTC calendar date, not the Lab Admin's
+// local one — for US timezones that silently rolls over to tomorrow's date
+// in the evening, well before local midnight. An assignment created against
+// that mismatched date wouldn't show up for a field team looking under
+// their own (correct) local "today". This shifts by the local offset first
+// so slice(0,10) reflects the Lab Admin's actual calendar day.
+function todayLocal(){
+  const d = new Date();
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 }
 
 // Same ISO-week convention the field app and CSV export already use, so a

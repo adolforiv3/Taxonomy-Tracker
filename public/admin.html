@@ -171,6 +171,16 @@ function shiftWeek(week, delta){
   return isoWeek(target.toISOString().slice(0,10));
 }
 
+// Date.toISOString() reports the UTC calendar date, not the viewer's local
+// one — for US timezones that silently rolls over to tomorrow's date in the
+// evening, well before local midnight, which could point the default week
+// view at the wrong week. This shifts by the local offset first so
+// slice(0,10) reflects the viewer's actual calendar day.
+function todayLocal(){
+  const d = new Date();
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
+
 let state = {
   studyLoaded: STUDY_ID === "default",
   studyError: false,
@@ -182,7 +192,7 @@ let state = {
   token: sessionStorage.getItem("tl_admin_token"),
   authErr: "",
 
-  week: isoWeek(new Date().toISOString().slice(0,10)),
+  week: isoWeek(todayLocal()),
   entries: [],
   loading: false,
   lastUpdated: null,

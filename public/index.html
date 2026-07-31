@@ -216,11 +216,23 @@ function isoWeek(dateStr){
   return `${d.getUTCFullYear()}-W${String(week).padStart(2,"0")}`;
 }
 
+// Date.toISOString() reports the UTC calendar date, not the field team's
+// local one — for US timezones that means it silently rolls over to
+// tomorrow's date in the evening, well before local midnight (e.g. ~5pm
+// Pacific). That mismatch between what a Lab Admin assigned "today" and
+// what the field app thinks "today" is was hiding assignments that were
+// actually there. This shifts by the local offset first so slice(0,10)
+// reflects the calendar day the field user is actually standing in.
+function todayLocal(){
+  const d = new Date();
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
+
 /* ---------------- STATE ---------------- */
 let state = {
   studyLoaded: STUDY_ID === "default",
   studyError: false,
-  date: new Date().toISOString().slice(0,10),
+  date: todayLocal(),
   // Not persisted — each run re-confirms who's logging (a device may be
   // shared across teams over the course of a day), so team/protocol reset
   // to blank both on a page refresh and after every submitted run.
@@ -239,12 +251,13 @@ let state = {
   cart: [], // pending items for the current run
   finishStep: null, // null | 'details' | 'review'
   submitting: false,
-  weekly: { week: isoWeek(new Date().toISOString().slice(0,10)), entries: [], loading: false },
+  weekly: { week: isoWeek(todayLocal()), entries: [], loading: false },
   editingId: null,
   editDraft: null,
   toast: null,
   assignments: [], // today's Lab Admin-set {teamId, kitNumber, route, environment} for this study
-  assignmentsLoading: false
+  assignmentsLoading: false,
+  teamFilter: ""
 };
 
 let pollTimer = null;
@@ -282,6 +295,7 @@ function selectAssignment(a){
   // Location is a study-level, per-week concept the DRI schedules (see
   // resolveWeekLocation) — it doesn't come from the team's assignment.
   state.teamId = a.teamId;
+  state.teamFilter = "";
   state.objectKit = a.kitNumber;
   state.assignedRoutes = a.routes || [];
   if(state.assignedRoutes.length === 1){
@@ -497,13 +511,43 @@ function renderSetup(){
 
   if(!state.teamId){
     main.appendChild(rowTitle(`Team${state.assignmentsLoading ? " (loading…)" : ""}`));
-    if(!state.assignmentsLoading && state.assignments.length === 0){
-      const empty = document.createElement("div");
-      empty.style.cssText = "font-size:13px;color:var(--ink-soft);padding:8px 2px;line-height:1.5;";
-      empty.textContent = "No team assignments for today yet. Ask your Lab Admin to set up today's kit/route/environment assignments in the Study Builder.";
-      main.appendChild(empty);
+
+    if(state.assignments.length === 0){
+      if(!state.assignmentsLoading){
+        const empty = document.createElement("div");
+        empty.style.cssText = "font-size:13px;color:var(--ink-soft);padding:8px 2px;line-height:1.5;";
+        empty.textContent = "No team assignments for today yet. Ask your Lab Admin to set up today's kit/route/environment assignments in the Study Builder.";
+        main.appendChild(empty);
+      }
+      return main;
+    }
+
+    const filterInput = document.createElement("input");
+    filterInput.type = "text";
+    filterInput.placeholder = "Type your team name…";
+    filterInput.value = state.teamFilter;
+    filterInput.style.marginBottom = "12px";
+    // No render() on input — replacing this element on every keystroke would
+    // drop focus after one character, the same bug the old free-text team
+    // field had. Filtering the tile list only needs to catch up once typing
+    // pauses, so that happens on blur (and immediately on Enter).
+    filterInput.oninput = (e) => { state.teamFilter = e.target.value; };
+    filterInput.onblur = () => { render(); };
+    filterInput.addEventListener("keydown", (e) => { if(e.key === "Enter") render(); });
+    main.appendChild(filterInput);
+
+    const needle = state.teamFilter.trim().toLowerCase();
+    const filtered = needle
+      ? state.assignments.filter(a => a.teamId.toLowerCase().includes(needle))
+      : state.assignments;
+
+    if(filtered.length === 0){
+      const noMatch = document.createElement("div");
+      noMatch.style.cssText = "font-size:13px;color:var(--ink-soft);padding:8px 2px;";
+      noMatch.textContent = `No team matches "${state.teamFilter}".`;
+      main.appendChild(noMatch);
     } else {
-      main.appendChild(tileGrid(state.assignments.map(a => ({
+      main.appendChild(tileGrid(filtered.map(a => ({
         label: a.teamId, wide: true, sel: false, onClick: () => selectAssignment(a)
       }))));
     }
@@ -850,15 +894,12 @@ async function finishRound(){
     state.captureSessionId = "";
     state.sessionNotes = "";
     state.submitting = false;
-    // Back to the team picker for the next run — a device may be shared
-    // across teams over the course of a day, so each run re-confirms who's
-    // logging rather than silently continuing under whoever set up last.
-    state.teamId = null;
-    state.protocol = null;
-    state.environment = null;
-    state.objectKit = null;
-    state.route = "";
-    state.assignedRoutes = [];
+    // Team/protocol/kit/route deliberately stay put — the same team
+    // usually runs several rounds back to back and shouldn't have to
+    // re-pick their team and protocol from scratch every time. Only the
+    // per-run fields (cart, calibration/capture IDs, notes) clear, so
+    // "start next run" is just picking signs again. A device handoff to a
+    // different team goes through "Change" instead, explicitly.
     showToast(`Run complete — ${count} entries saved to the weekly document`);
     render();
   } catch (err) {
