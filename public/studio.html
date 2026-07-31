@@ -129,7 +129,7 @@ function blankForm(){
 
 let state = {
   user: null,
-  token: sessionStorage.getItem("tl_token"),
+  token: localStorage.getItem("tl_token"),
   authMode: "login", // "login" or "bootstrap"
   authErr: "",
   bootstrapErr: "",
@@ -155,16 +155,20 @@ let state = {
 const app = document.getElementById("app");
 
 async function checkBootstrapNeeded(){
-  // Check if any superadmin exists
+  // Dedicated unauthenticated endpoint — listUsers's 403 can't be reused
+  // here since it fires identically whether no account exists yet or one
+  // exists and this caller just isn't logged in as it, which made this
+  // check wrongly show the bootstrap screen to already-set-up admins
+  // whenever their session token wasn't present (e.g. a fresh tab).
   try {
     const res = await fetch("/api/users", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action: "listUsers" })
+      body: JSON.stringify({ action: "bootstrapStatus" })
     });
-    // If 403, bootstrap is needed (no superadmin exists and we're not authed)
-    if(res.status === 403) return true;
-    return false;
+    if(!res.ok) return false;
+    const data = await res.json();
+    return !!data.needsBootstrap;
   } catch {
     return false;
   }
@@ -186,11 +190,11 @@ async function init(){
         fetchStudies();
       } else {
         state.token = null;
-        sessionStorage.removeItem("tl_token");
+        localStorage.removeItem("tl_token");
       }
     } catch (err) {
       state.token = null;
-      sessionStorage.removeItem("tl_token");
+      localStorage.removeItem("tl_token");
     }
   } else {
     // Check if bootstrap is needed
@@ -271,7 +275,7 @@ async function tryBootstrap(){
     } else {
       state.token = data.token;
       state.user = data.user;
-      sessionStorage.setItem("tl_token", state.token);
+      localStorage.setItem("tl_token", state.token);
       state.authErr = "";
       state.bootstrapErr = "";
       state.authMode = "login";
@@ -308,7 +312,7 @@ async function tryLogin(){
     } else {
       state.token = data.token;
       state.user = data.user;
-      sessionStorage.setItem("tl_token", state.token);
+      localStorage.setItem("tl_token", state.token);
       state.authErr = "";
       state.authMode = "login";
       render();
@@ -323,7 +327,7 @@ async function tryLogin(){
 function logout(){
   state.user = null;
   state.token = null;
-  sessionStorage.removeItem("tl_token");
+  localStorage.removeItem("tl_token");
   state.form = blankForm();
   state.launchResult = null;
   state.reviewingStudy = false;

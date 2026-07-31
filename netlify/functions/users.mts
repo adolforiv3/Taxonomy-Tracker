@@ -41,6 +41,17 @@ export default async (req: Request, context: Context) => {
   const body = await req.json();
   const action = body.action;
 
+  if (action === "bootstrapStatus") {
+    // Deliberately unauthenticated (the studio login screen calls this
+    // before anyone has a session) and deliberately reveals only a
+    // boolean — no user data. This exists because listUsers's 403 doesn't
+    // distinguish "no account exists yet" from "you're just not logged
+    // in as one" — both look identical to an unauthenticated caller, so
+    // that path can't be reused to detect bootstrap eligibility.
+    const users = await loadUsers();
+    return Response.json({ needsBootstrap: users.length === 0 });
+  }
+
   if (action === "bootstrap") {
     const users = await loadUsers();
     if (users.length > 0) {
