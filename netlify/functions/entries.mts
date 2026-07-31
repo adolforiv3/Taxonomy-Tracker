@@ -12,8 +12,22 @@ const RUN_LOG_HEADERS = [
   "Date", "Team", "Location State", "Location City", "Route", "Environment", "Protocol",
   "Object Kit", "Calibration Session ID", "Capture Session ID", "Signs Observed", "Offload Status", "Notes"
 ];
+// "Signs Observed" and "Notes" routinely hold long free text — a width
+// keyed off the header label alone left them narrow enough that content
+// visually spilled across neighboring empty cells (looked like data landed
+// in the wrong column, though the underlying cells were correct).
+const RUN_LOG_COLUMN_WIDTHS: Record<string, number> = { "Signs Observed": 46, "Notes": 40 };
+const RUN_LOG_WRAP_COLUMNS = new Set(["Signs Observed", "Notes"]);
 
-const HEADER_FILL: ExcelJS.FillPattern = { type: "pattern", pattern: "solid", fgColor: { argb: "FFEDEDED" } };
+// Excel treats a solid pattern's fgColor as the visible fill color and
+// largely ignores bgColor, but Apple Numbers' xlsx import has the opposite
+// bug — it silently drops fills that only set fgColor. Setting both to the
+// same color costs nothing in Excel/Sheets and makes the fill actually show
+// up in Numbers too.
+function solidFill(argb: string): ExcelJS.FillPattern {
+  return { type: "pattern", pattern: "solid", fgColor: { argb }, bgColor: { argb } };
+}
+const HEADER_FILL: ExcelJS.FillPattern = solidFill("FFEDEDED");
 const THIN_BORDER: Partial<ExcelJS.Borders> = {
   top: { style: "thin", color: { argb: "FFE0E0E0" } },
   left: { style: "thin", color: { argb: "FFE0E0E0" } },
@@ -89,7 +103,10 @@ async function buildRunLogWorkbook(entries: any[]): Promise<ExcelJS.Buffer> {
 
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet("Run Log");
-  sheet.columns = RUN_LOG_HEADERS.map((header) => ({ header, width: Math.max(14, header.length + 2) }));
+  sheet.columns = RUN_LOG_HEADERS.map((header) => ({
+    header,
+    width: RUN_LOG_COLUMN_WIDTHS[header] || Math.max(14, header.length + 2)
+  }));
   sheet.views = [{ state: "frozen", ySplit: 1 }];
 
   runs.forEach((run) => {
@@ -99,9 +116,14 @@ async function buildRunLogWorkbook(entries: any[]): Promise<ExcelJS.Buffer> {
       first.protocol, first.objectKit, first.calibrationSessionId, first.captureSessionId,
       summarizeSigns(run), "", first.sessionNotes
     ]);
-    row.eachCell((cell) => { cell.border = THIN_BORDER; });
+    row.eachCell((cell, colNumber) => {
+      cell.border = THIN_BORDER;
+      if (RUN_LOG_WRAP_COLUMNS.has(RUN_LOG_HEADERS[colNumber - 1])) {
+        cell.alignment = { wrapText: true, vertical: "top" };
+      }
+    });
     if (first.environment) {
-      row.getCell(6).fill = { type: "pattern", pattern: "solid", fgColor: { argb: hashColor(String(first.environment)) } };
+      row.getCell(6).fill = solidFill(hashColor(String(first.environment)));
     }
   });
 
@@ -124,7 +146,7 @@ async function fetchStudySignTypes(studyId: string | null): Promise<string[] | n
   return study.signTypes.map((t: any) => t.name);
 }
 
-const TALLY_ROW_FILL: ExcelJS.FillPattern = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE3F5DE" } };
+const TALLY_ROW_FILL: ExcelJS.FillPattern = solidFill("FFE3F5DE");
 
 async function buildTallyWorkbook(entries: any[], canonicalSignTypes: string[] | null): Promise<ExcelJS.Buffer> {
   const byTeam = new Map<string, any[]>();
