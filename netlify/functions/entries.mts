@@ -96,7 +96,28 @@ function styleHeaderRow(row: ExcelJS.Row) {
   });
 }
 
-async function buildRunLogWorkbook(entries: any[]): Promise<ExcelJS.Buffer> {
+const OFFLOAD_STATUS_OPTIONS = ["Complete", "Pending", "N/A"];
+
+// Excel's inline dropdown-list syntax (`formulae: ['"A,B,C"']`) breaks if any
+// option contains a comma and silently truncates past ~255 characters — a
+// hidden reference sheet with one option per row sidesteps both. Every
+// dropdown column here points at a range on it instead of an inline list.
+function addOptionsSheet(workbook: ExcelJS.Workbook, columns: { header: string; values: string[] }[]): ExcelJS.Worksheet {
+  const sheet = workbook.addWorksheet("Lists", { state: "veryHidden" });
+  sheet.columns = columns.map((c) => ({ header: c.header, width: 20 }));
+  const maxLen = Math.max(0, ...columns.map((c) => c.values.length));
+  for (let i = 0; i < maxLen; i++) {
+    sheet.addRow(columns.map((c) => c.values[i] ?? ""));
+  }
+  return sheet;
+}
+
+function dropdownValidation(sheetName: string, colLetter: string, count: number): ExcelJS.DataValidation | undefined {
+  if (count === 0) return undefined;
+  return { type: "list", allowBlank: true, formulae: [`${sheetName}!$${colLetter}$2:$${colLetter}$${count + 1}`] };
+}
+
+async function buildRunLogWorkbook(entries: any[], studyOptions: { environments: string[]; protocols: string[] } | null): Promise<ExcelJS.Buffer> {
   const runs = groupIntoRuns(entries)
     .slice()
     .sort((a, b) => String(a[0].timestamp).localeCompare(String(b[0].timestamp)));
@@ -108,6 +129,16 @@ async function buildRunLogWorkbook(entries: any[]): Promise<ExcelJS.Buffer> {
     width: RUN_LOG_COLUMN_WIDTHS[header] || Math.max(14, header.length + 2)
   }));
   sheet.views = [{ state: "frozen", ySplit: 1 }];
+
+  // The dropdown should offer every value the study actually defines, plus
+  // any observed value that isn't (or no longer is) one of them — otherwise
+  // an existing entry could show a value the dropdown itself can't reselect.
+  const envOptions = new Set(studyOptions?.environments || []);
+  const protocolOptions = new Set(studyOptions?.protocols || []);
+  runs.forEach((run) => {
+    if (run[0].environment) envOptions.add(String(run[0].environment));
+    if (run[0].protocol) protocolOptions.add(String(run[0].protocol));
+  });
 
   runs.forEach((run) => {
     const first = run[0];
@@ -130,6 +161,22 @@ async function buildRunLogWorkbook(entries: any[]): Promise<ExcelJS.Buffer> {
   styleHeaderRow(sheet.getRow(1));
   sheet.autoFilter = { from: "A1", to: `${sheet.getColumn(RUN_LOG_HEADERS.length).letter}1` };
 
+  const envList = [...envOptions];
+  const protocolList = [...protocolOptions];
+  const listsSheet = addOptionsSheet(workbook, [
+    { header: "Environment", values: envList },
+    { header: "Protocol", values: protocolList },
+    { header: "Offload Status", values: OFFLOAD_STATUS_OPTIONS }
+  ]);
+  const envValidation = dropdownValidation(listsSheet.name, "A", envList.length);
+  const protocolValidation = dropdownValidation(listsSheet.name, "B", protocolList.length);
+  const offloadValidation = dropdownValidation(listsSheet.name, "C", OFFLOAD_STATUS_OPTIONS.length);
+  for (let r = 2; r <= sheet.rowCount; r++) {
+    if (envValidation) sheet.getCell(`F${r}`).dataValidation = envValidation;
+    if (protocolValidation) sheet.getCell(`G${r}`).dataValidation = protocolValidation;
+    if (offloadValidation) sheet.getCell(`L${r}`).dataValidation = offloadValidation;
+  }
+
   return (await workbook.xlsx.writeBuffer()) as ExcelJS.Buffer;
 }
 
@@ -137,13 +184,18 @@ async function buildRunLogWorkbook(entries: any[]): Promise<ExcelJS.Buffer> {
 // alongside the run log — one table per team (teams often work different
 // days/routes), rows for every taxonomy item the study defines (so an item
 // nobody saw all week still shows as a zero, not a missing row), columns for
-// each day that team actually logged something, plus a running total.
-async function fetchStudySignTypes(studyId: string | null): Promise<string[] | null> {
+// each day that team actually logged something, plus a running total. Also
+// the source of the Run Log's Environment/Protocol dropdown options.
+async function fetchStudyMeta(studyId: string | null): Promise<{ signTypes: string[]; environments: string[]; protocols: string[] } | null> {
   if (!studyId || studyId === "default") return null;
   const studiesStore = getStore({ name: "studies", consistency: "strong" });
   const study = (await studiesStore.get(studyId, { type: "json" })) as any | null;
-  if (!study || !Array.isArray(study.signTypes)) return null;
-  return study.signTypes.map((t: any) => t.name);
+  if (!study) return null;
+  return {
+    signTypes: Array.isArray(study.signTypes) ? study.signTypes.map((t: any) => t.name) : [],
+    environments: Array.isArray(study.environments) ? study.environments : [],
+    protocols: Array.isArray(study.protocols) ? study.protocols : []
+  };
 }
 
 const TALLY_ROW_FILL: ExcelJS.FillPattern = solidFill("FFE3F5DE");
@@ -238,14 +290,14 @@ export default async (req: Request, context: Context) => {
 
     if (url.searchParams.get("format") === "xlsx") {
       const xlsxHeaders = { "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" };
+      const studyMeta = await fetchStudyMeta(studyId);
       if (url.searchParams.get("view") === "tally") {
-        const canonicalSignTypes = await fetchStudySignTypes(studyId);
-        const buffer = await buildTallyWorkbook(entries, canonicalSignTypes);
+        const buffer = await buildTallyWorkbook(entries, studyMeta ? studyMeta.signTypes : null);
         return new Response(buffer, {
           headers: { ...xlsxHeaders, "content-disposition": `attachment; filename="taxonomy_tally_week_${week}.xlsx"` }
         });
       }
-      const buffer = await buildRunLogWorkbook(entries);
+      const buffer = await buildRunLogWorkbook(entries, studyMeta);
       return new Response(buffer, {
         headers: { ...xlsxHeaders, "content-disposition": `attachment; filename="taxonomy_runs_week_${week}.xlsx"` }
       });
