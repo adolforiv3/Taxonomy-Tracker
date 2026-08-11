@@ -945,10 +945,13 @@ function renderRoundBlock(round){
     const row = document.createElement("div");
     row.className = "sign-row";
     const editedTag = latest.editedAt ? ` · edited ${new Date(latest.editedAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}` : "";
+    const tags = [...new Set(group.items.map(it => it.interaction).filter(Boolean))];
+    const tagLine = tags.length ? `<div class="round-meta">Interactions: ${escapeHtml(tags.join(", "))}</div>` : "";
     row.innerHTML = `
       <div>
         <div class="sign-name">${SIGN_EMOJI[group.signType]||""} ${escapeHtml(group.signType)}${group.items.length>1 ? `<span class="countbadge">×${group.items.length}</span>` : ""}</div>
         <div class="round-meta">${new Date(latest.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}${editedTag}</div>
+        ${tagLine}
       </div>
     `;
     const actions = document.createElement("div");

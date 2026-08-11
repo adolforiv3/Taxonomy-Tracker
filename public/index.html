@@ -208,6 +208,11 @@ let SIGN_TYPES = Object.keys(SIGN_EMOJI).sort((a,b) => a.localeCompare(b));
 let PROTOCOLS = ["Walk", "Exploration", "Fast-Walk"];
 let STUDY_NAME = "Taxonomy Logger";
 let LOCATION_SCHEDULE = []; // DRI-set {week, state, city}[] — a study can span weeks in different places
+// Optional behavioral context tagged onto individual sign observations (see
+// "+ Interaction" in renderQtyGroup) — empty by default; a study only shows
+// this UI at all if its DRI actually defined some in Study Builder.
+let INTERACTION_EMOJI = {};
+let INTERACTIONS = [];
 
 function isoWeek(dateStr){
   const d = new Date(dateStr + "T00:00:00Z");
@@ -267,7 +272,8 @@ let state = {
   assignments: [], // today's Lab Admin-set {teamId, kitNumber, route, environment} for this study
   assignmentsLoading: false,
   teamFilter: "",
-  teamEntryErr: ""
+  teamEntryErr: "",
+  interactionPickerFor: null // signType currently showing its interaction picker, or null
 };
 
 let pollTimer = null;
@@ -370,6 +376,9 @@ async function resolveStudy(name, passcode, opts){
     SIGN_EMOJI = {};
     (s.signTypes || []).forEach(t => { SIGN_EMOJI[t.name] = t.emoji; });
     SIGN_TYPES = Object.keys(SIGN_EMOJI).sort((a,b) => a.localeCompare(b));
+    INTERACTION_EMOJI = {};
+    (s.interactions || []).forEach(t => { INTERACTION_EMOJI[t.name] = t.emoji; });
+    INTERACTIONS = Object.keys(INTERACTION_EMOJI).sort((a,b) => a.localeCompare(b));
     localStorage.setItem("tl_study", JSON.stringify({ name, passcode }));
     state.gateLoading = false;
     state.gateErr = "";
@@ -991,6 +1000,64 @@ function renderQtyGroup(group){
   stepper.appendChild(plus);
   el.querySelector(".qty-row").appendChild(stepper);
 
+  // Interactions are optional and tagged afterward, not while logging a
+  // sign — so the fast tap-to-log flow above never gets interrupted. Only
+  // shown at all if this study actually defines some.
+  if(INTERACTIONS.length > 0){
+    const tagCounts = new Map();
+    group.items.forEach(it => { if(it.interaction) tagCounts.set(it.interaction, (tagCounts.get(it.interaction)||0) + 1); });
+
+    if(tagCounts.size > 0){
+      const chipRow = document.createElement("div");
+      chipRow.style.cssText = "display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;";
+      [...tagCounts.entries()].forEach(([name, n]) => {
+        const chip = document.createElement("button");
+        chip.style.cssText = "background:var(--teal-bg);color:var(--teal-dark);border:none;border-radius:var(--r-pill);padding:5px 10px;font-size:11.5px;font-weight:600;display:inline-flex;align-items:center;gap:5px;";
+        chip.innerHTML = `${INTERACTION_EMOJI[name]||""} ${escapeHtml(name)}${n>1?` ×${n}`:""} <span style="opacity:.6;">✕</span>`;
+        chip.title = "Remove this tag";
+        chip.onclick = () => {
+          for(let i = group.items.length - 1; i >= 0; i--){
+            if(group.items[i].interaction === name){ group.items[i].interaction = null; break; }
+          }
+          render();
+        };
+        chipRow.appendChild(chip);
+      });
+      el.appendChild(chipRow);
+    }
+
+    const untaggedCount = group.items.filter(it => !it.interaction).length;
+    if(untaggedCount > 0){
+      const toggleBtn = document.createElement("button");
+      const isOpen = state.interactionPickerFor === group.signType;
+      toggleBtn.textContent = isOpen ? "Cancel" : "+ Interaction";
+      toggleBtn.style.cssText = "background:none;border:1px solid var(--border);color:var(--teal);border-radius:var(--r-pill);padding:5px 12px;font-size:11.5px;font-weight:600;margin-top:10px;";
+      toggleBtn.onclick = () => {
+        state.interactionPickerFor = isOpen ? null : group.signType;
+        render();
+      };
+      el.appendChild(toggleBtn);
+
+      if(isOpen){
+        const picker = document.createElement("div");
+        picker.style.cssText = "display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;";
+        INTERACTIONS.forEach(name => {
+          const opt = document.createElement("button");
+          opt.style.cssText = "background:var(--card);border:1px solid var(--border);border-radius:var(--r-sm);padding:7px 12px;font-size:12.5px;font-weight:600;";
+          opt.innerHTML = `${INTERACTION_EMOJI[name]||""} ${escapeHtml(name)}`;
+          opt.onclick = () => {
+            const target = group.items.find(it => !it.interaction);
+            if(target) target.interaction = name;
+            state.interactionPickerFor = null;
+            render();
+          };
+          picker.appendChild(opt);
+        });
+        el.appendChild(picker);
+      }
+    }
+  }
+
   return el;
 }
 
@@ -1017,7 +1084,8 @@ function newCartItem(signType){
     route: state.route,
     locationState: state.locationState,
     locationCity: state.locationCity,
-    signType: signType
+    signType: signType,
+    interaction: null // optional, tagged afterward from the run list — see renderQtyGroup
   };
 }
 
@@ -1070,6 +1138,7 @@ async function finishRound(){
 
     state.cart = [];
     state.finishStep = null;
+    state.interactionPickerFor = null;
     state.calibrationSessionId = "";
     state.captureSessionIds = [];
     state.captureIdDraft = "";

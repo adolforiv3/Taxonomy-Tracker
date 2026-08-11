@@ -118,6 +118,7 @@ function blankForm(){
     environments: [],
     objectKitCount: 0,
     signTypes: [],
+    interactions: [], // pedestrian behaviors tagged onto sign observations in the field app (reading, phone use, ...)
     locationSchedule: [] // {id, week, state, city} — a study can span weeks in different places
   };
 }
@@ -411,6 +412,7 @@ function renderForm(){
   card.appendChild(listEditor("Protocols", f.protocols, () => f.protocols.push(""), (i) => f.protocols.splice(i,1), EXAMPLE_PROTOCOLS));
   card.appendChild(listEditor("Environment Types", f.environments, () => f.environments.push(""), (i) => f.environments.splice(i,1), EXAMPLE_ENVIRONMENTS));
   card.appendChild(signTypeEditor(f));
+  card.appendChild(interactionEditor(f));
   card.appendChild(locationScheduleEditor(f));
 
   const launchBtn = document.createElement("button");
@@ -567,6 +569,54 @@ function signTypeEditor(f){
   return wrap;
 }
 
+// Behavioral context a field user can tag onto a specific sign observation
+// (see the field app's "+ Interaction" button) — a separate list from the
+// taxonomy itself, since not every study cares about pedestrian behavior.
+function interactionEditor(f){
+  const wrap = document.createElement("div");
+  wrap.className = "field";
+  const lbl = document.createElement("label");
+  lbl.textContent = `Interactions (${f.interactions.length})`;
+  wrap.appendChild(lbl);
+
+  const sub = document.createElement("div");
+  sub.style.cssText = "font-size:11.5px;color:var(--ink-soft);margin-bottom:8px;margin-top:-4px;line-height:1.4;";
+  sub.textContent = "Optional behaviors a field user can tag onto a specific sign observation (e.g. the pedestrian was reading a book). An emoji is picked automatically once the study is saved. Leave empty if this study doesn't track behavior.";
+  wrap.appendChild(sub);
+
+  if(f.interactions.length === 0){
+    const hint = document.createElement("div");
+    hint.style.cssText = "font-size:12px;color:var(--ink-soft);margin-bottom:8px;";
+    hint.textContent = "Examples: Reading a book, Drinking water, Using phone, Playing with keys, Adjusting backpack";
+    wrap.appendChild(hint);
+  }
+
+  f.interactions.forEach((s, i) => {
+    const row = document.createElement("div");
+    row.className = "listrow";
+    const nameInput = document.createElement("input");
+    nameInput.type = "text";
+    nameInput.value = s.name;
+    nameInput.placeholder = "Interaction name";
+    nameInput.oninput = (e) => { s.name = e.target.value; };
+    row.appendChild(nameInput);
+    const rm = document.createElement("button");
+    rm.className = "rmbtn";
+    rm.textContent = "Remove";
+    rm.onclick = () => { f.interactions.splice(i,1); render(); };
+    row.appendChild(rm);
+    wrap.appendChild(row);
+  });
+
+  const addBtn = document.createElement("button");
+  addBtn.className = "addbtn";
+  addBtn.textContent = "+ Add Interaction";
+  addBtn.onclick = () => { f.interactions.push({name:"", emoji:""}); render(); };
+  wrap.appendChild(addBtn);
+
+  return wrap;
+}
+
 function locationScheduleEditor(f){
   const wrap = document.createElement("div");
   wrap.className = "field";
@@ -699,6 +749,14 @@ function renderStudyReview(){
     <div style="font-size:11.5px;color:var(--ink-soft);margin-top:4px;">Emoji auto-assigned once saved.</div>`;
   card.appendChild(signRow);
 
+  const interactionRow = document.createElement("div");
+  interactionRow.className = "field";
+  const validInteractions = f.interactions.filter(s => s.name.trim());
+  interactionRow.innerHTML = `<label>Interactions (${validInteractions.length})</label>
+    <div style="font-size:14.5px;line-height:1.6;">${validInteractions.length ? validInteractions.map(s => escapeHtml(s.name)).join(" · ") : "None added"}</div>
+    <div style="font-size:11.5px;color:var(--ink-soft);margin-top:4px;">Emoji auto-assigned once saved.</div>`;
+  card.appendChild(interactionRow);
+
   const locRow = document.createElement("div");
   locRow.className = "field";
   const validLocs = f.locationSchedule.filter(l => l.state.trim() && l.city.trim());
@@ -743,6 +801,7 @@ async function saveStudy(){
     environments: f.environments.filter(e => e.trim()),
     objectKitCount: f.objectKitCount,
     signTypes: f.signTypes.filter(s => s.name.trim()),
+    interactions: f.interactions.filter(s => s.name.trim()),
     locationSchedule: f.locationSchedule.filter(l => l.state.trim() && l.city.trim())
   };
   if(f.passcode.trim()) payload.passcode = f.passcode.trim();
@@ -1519,6 +1578,7 @@ async function loadStudyForEdit(id){
       passcode: "", teamCount: s.teamCount, protocols: [...s.protocols],
       environments: [...s.environments], objectKitCount: s.objectKitCount,
       signTypes: s.signTypes.map(x => ({...x})),
+      interactions: (s.interactions || []).map(x => ({...x})),
       locationSchedule: (s.locationSchedule || []).map(x => ({...x}))
     };
     state.launchResult = null;

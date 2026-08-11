@@ -30,6 +30,10 @@ interface Study {
   environments: string[];
   objectKitCount: number;
   signTypes: { name: string; emoji: string }[];
+  // Behavioral context tagged onto individual sign observations in the
+  // field app (e.g. "reading a book", "using phone") — a separate,
+  // per-study-configurable list from the taxonomy itself.
+  interactions: { name: string; emoji: string }[];
   locationSchedule: LocationScheduleEntry[];
   createdAt: string;
   updatedAt?: string;
@@ -216,6 +220,7 @@ export default async (req: Request, context: Context) => {
       environments: Array.isArray(body.environments) ? body.environments : [],
       objectKitCount: body.objectKitCount !== undefined ? Number(body.objectKitCount) || 0 : 10,
       signTypes: Array.isArray(body.signTypes) ? withAutoEmoji(body.signTypes) : [],
+      interactions: Array.isArray(body.interactions) ? withAutoEmoji(body.interactions) : [],
       locationSchedule: normalizeLocationSchedule(body.locationSchedule) || [],
       createdAt: new Date().toISOString()
     };
@@ -232,7 +237,7 @@ export default async (req: Request, context: Context) => {
 
     const allowedFields = [
       "name", "dateStart", "dateEnd", "passcode", "teamCount",
-      "protocols", "environments", "objectKitCount", "signTypes"
+      "protocols", "environments", "objectKitCount", "signTypes", "interactions"
     ];
     const updates = body.updates || {};
 
@@ -277,6 +282,9 @@ export default async (req: Request, context: Context) => {
         }
         if (Array.isArray(merged.signTypes)) {
           merged.signTypes = withAutoEmoji(merged.signTypes);
+        }
+        if (Array.isArray(merged.interactions)) {
+          merged.interactions = withAutoEmoji(merged.interactions);
         }
         merged.updatedAt = new Date().toISOString();
 

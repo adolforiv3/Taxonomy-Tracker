@@ -85,10 +85,17 @@ function groupIntoRuns(entries: any[]): any[][] {
   return [...map.values()];
 }
 
+// An interaction is tagged per sign observation, not per run, so it's folded
+// into the label here rather than needing its own export column — "Crosswalk
+// (Reading a book) x2" keeps a tagged observation distinguishable from an
+// untagged one of the same sign, in the same summary the team already reads.
 function summarizeSigns(run: any[]): string {
   const counts = new Map<string, number>();
-  run.forEach((e) => counts.set(e.signType, (counts.get(e.signType) || 0) + 1));
-  return [...counts.entries()].map(([signType, n]) => (n > 1 ? `${signType} x${n}` : signType)).join(", ");
+  run.forEach((e) => {
+    const label = e.interaction ? `${e.signType} (${e.interaction})` : e.signType;
+    counts.set(label, (counts.get(label) || 0) + 1);
+  });
+  return [...counts.entries()].map(([label, n]) => (n > 1 ? `${label} x${n}` : label)).join(", ");
 }
 
 function styleHeaderRow(row: ExcelJS.Row) {
