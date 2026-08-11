@@ -10,14 +10,15 @@ import { usersStore } from "./utils/store.mts";
 // their existing sheet; this app has no notion of physical device offload.
 const RUN_LOG_HEADERS = [
   "Date", "Team", "Location State", "Location City", "Route", "Environment", "Protocol",
-  "Object Kit", "Calibration Session ID", "Capture Session ID", "Signs Observed", "Offload Status", "Notes"
+  "Object Kit", "Calibration Session ID", "Capture Session IDs", "Signs Observed", "Offload Status", "Notes"
 ];
-// "Signs Observed" and "Notes" routinely hold long free text — a width
-// keyed off the header label alone left them narrow enough that content
-// visually spilled across neighboring empty cells (looked like data landed
-// in the wrong column, though the underlying cells were correct).
-const RUN_LOG_COLUMN_WIDTHS: Record<string, number> = { "Signs Observed": 46, "Notes": 40 };
-const RUN_LOG_WRAP_COLUMNS = new Set(["Signs Observed", "Notes"]);
+// "Signs Observed", "Capture Session IDs", and "Notes" routinely hold long
+// free text (capture IDs specifically can be a list of 10+ entries, one per
+// line) — a width keyed off the header label alone left them narrow enough
+// that content visually spilled across neighboring empty cells (looked like
+// data landed in the wrong column, though the underlying cells were correct).
+const RUN_LOG_COLUMN_WIDTHS: Record<string, number> = { "Signs Observed": 46, "Capture Session IDs": 30, "Notes": 40 };
+const RUN_LOG_WRAP_COLUMNS = new Set(["Signs Observed", "Capture Session IDs", "Notes"]);
 
 // Excel treats a solid pattern's fgColor as the visible fill color and
 // largely ignores bgColor, but Apple Numbers' xlsx import has the opposite
@@ -69,13 +70,15 @@ function isoWeek(dateStr: string): string {
   return `${d.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
 }
 
-// A "run" is every entry sharing a team + capture (or calibration) session —
-// the same grouping admin.html's team accordion already uses to fold
-// individual sign observations back into the session they were captured in.
+// A "run" is every entry sharing a team + calibration session — the same
+// grouping admin.html's team accordion already uses to fold individual sign
+// observations back into the run they were captured in. Calibration is the
+// anchor (always exactly one per run); capture session IDs are a list of
+// however many concurrent captures fed into that run, not a grouping key.
 function groupIntoRuns(entries: any[]): any[][] {
   const map = new Map<string, any[]>();
   entries.forEach((e) => {
-    const key = `${e.teamId}::${e.captureSessionId || e.calibrationSessionId || e.id}`;
+    const key = `${e.teamId}::${e.calibrationSessionId || e.id}`;
     if (!map.has(key)) map.set(key, []);
     map.get(key)!.push(e);
   });
@@ -142,9 +145,10 @@ async function buildRunLogWorkbook(entries: any[], studyOptions: { environments:
 
   runs.forEach((run) => {
     const first = run[0];
+    const captureIds = Array.isArray(first.captureSessionIds) ? first.captureSessionIds : [];
     const row = sheet.addRow([
       first.date, first.teamId, first.locationState, first.locationCity, first.route, first.environment,
-      first.protocol, first.objectKit, first.calibrationSessionId, first.captureSessionId,
+      first.protocol, first.objectKit, first.calibrationSessionId, captureIds.join("\n"),
       summarizeSigns(run), "", first.sessionNotes
     ]);
     row.eachCell((cell, colNumber) => {
@@ -348,7 +352,7 @@ export default async (req: Request, context: Context) => {
       return Response.json({ error: "you can only edit entries from your team" }, { status: 403 });
     }
 
-    const allowedFields = ["date", "route", "signType", "calibrationSessionId", "captureSessionId", "sessionNotes", "note"];
+    const allowedFields = ["date", "route", "signType", "calibrationSessionId", "captureSessionIds", "sessionNotes", "note"];
     const updates = body.updates || {};
     const merged = { ...existing };
     for (const field of allowedFields) {
